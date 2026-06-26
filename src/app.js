@@ -11,6 +11,7 @@ const createReportRouter = require("./routes/report");
 const createOrderRouter = require("./routes/order");
 const createActRouter = require("./routes/act");
 const downloadRouter = require("./routes/download");
+const healthRouter = require("./routes/health");
 
 // const swaggerUi = require("swagger-ui-express");
 // const YAML = require("yamljs");
@@ -37,10 +38,11 @@ app.use(
   }),
 );
 
-app.use("/report", createReportRouter);
-app.use("/download", downloadRouter);
-app.use("/order", createOrderRouter);
-app.use("/act", createActRouter);
+app.use("/api/report", createReportRouter);
+app.use("/api/download", downloadRouter);
+app.use("/api/order", createOrderRouter);
+app.use("/api/act", createActRouter);
+app.use("/api/healht", healthRouter);
 
 app.use(errorMiddleware);
 
