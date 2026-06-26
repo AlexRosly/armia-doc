@@ -1,0 +1,63 @@
+Node.js + Express + MongoDB
+
+src/
+│
+├── controllers/
+│   └── generation/
+│       ├── createGeneration.js
+│       ├── downloadDocx.js
+│       └── downloadArmdoc.js
+│
+├── services/
+│   ├── generation/
+│   │   ├── generateReport.js
+│   │   ├── validatePayload.js
+│   │   ├── createJob.js
+│   │   └── cleanupJob.js
+│   │
+│   ├── docx/
+│   │   ├── generateDocx.js
+│   │   ├── layoutValidator.js
+│   │   ├── profileRunner.js
+│   │   └── profiles.js
+│   │
+│   ├── armdoc/
+│   │   ├── createArmdoc.js
+│   │   └── encryptArmdoc.js
+│   │
+│   └── pdf/
+│       ├── convertToPdf.js
+│       └── parsePdf.js
+│
+├── models/
+│   ├── ReportDocument.js
+│   └── GenerationJob.js
+│
+├── templates/
+│   └── report-template.docx
+│
+├── storage/
+│   ├── docx/
+│   ├── pdf/
+│   └── armdoc/
+│
+└── routes/
+
+Я бы сейчас план разработки перестроил так:
+Backend v1 (почти завершен)
+ Рапорт -Готово
+ Генерация DOCX-Готово
+ Генерация PDF-Готово
+ Генерация ARMDOC-Готово
+ Скачивание файлов-Готово
+ Подбор шаблона -Готово
+ Приказ -Готово
+ Акт -Готово
+ Автоочистка через 10 минут
+
+Backend v2
+ Шифрование
+ Очередь задач
+ История документов
+ WebSocket статусы
+ Пользователи

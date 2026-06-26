@@ -1,0 +1,24 @@
+{{recipient}}
+
+{{documentTitle}}
+
+{{eventDescription}}
+
+{#services}
+
+За номенклатурою {{service}}
+
+{#items}
+• {{text}}
+{/items}
+
+{/services}
+
+{{requestPart}}
+
+{{signerPosition}}
+{{signerMilitaryUnit}}
+
+{{signerRank}} {{signerFullName}}
+
+{{signerDate}}

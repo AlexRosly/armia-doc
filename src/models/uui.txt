@@ -1,0 +1,347 @@
+{
+  "caseId": "case_123",
+  "documentType": "report",
+  "mode": "with_armdoc",
+  "data": {
+    "documentDetails": {
+      "recipient": "Командиру військової частини А1302",
+      "documentTitle": "РАПОРТ"
+    },
+    "eventDescription": {
+      "text": "Дійсним доповідаю, що 21 березня 2023 року..."
+    },
+    "lostProperty": [
+      {
+        "id": "item_1",
+        "service": "Служба наземних систем озброєння логістики",
+        "unit": "2 зенітна ракетна батарея",
+        "itemName": "23 мм ЗУ-23-2",
+        "identification": "№ АА-1325",
+        "manufactureYear": "2022",
+        "quantity": "1 комплект",
+        "note": ""
+      },
+      {
+        "id": "item_2",
+        "service": "Речова служба тилу логістики",
+        "unit": "",
+        "itemName": "Бронежилет Корсар М3с-1-4",
+        "identification": "",
+        "manufactureYear": "",
+        "quantity": "4 комплекти",
+        "note": ""
+      }
+    ],
+    "specialPropertyCases": {
+      "status": "none",
+      "text": ""
+    },
+    "valuationAndGrounds": {
+      "text": ""
+    },
+    "lossCircumstances": {
+      "text": ""
+    },
+    "additionalInfo": {
+      "text": ""
+    },
+    "requestPart": {
+      "text": "На підставі вищевикладеного, ПРОШУ..."
+    },
+    "signer": {
+      "position": "Командир зенітного ракетного дивізіону",
+      "militaryUnit": "військова частина А1302",
+      "rank": "капітан",
+      "fullName": "Іван ПЕТРЕНКО",
+      "date": "2026-03-23"
+    }
+  }
+}
+
+Отлично у меня такой контроллер getGenerationStatus называется checkStatusReport, я его обновил. Также еще нужно учесть, что уже планируется генерировать еще два типа похожих документов это Приказ и Акт на списание. Приказ полностью похож на Рапорт по структуре, отличие добавлено свойство в джейсон "Оценочная стоимость".
+
+
+{
+  caseId: "case_stub",
+  documentType: "order",
+  mode: "with_armdoc",
+  data: {
+    orderDetails: {
+      whoseOrder: "командира військової частини А8888",
+      settlement: "м. Якмісто",
+      orderDate: "01.04.2024",
+      orderTitle: "Про списання втраченого (знищеного) військового майна",
+    },
+    eventDescription: {
+      text: "Дійсним доповідаю: 19 березня 2025 року о 08:33 год., внаслідок удару FPV-дроном-камікадзе по КСП «ТАЛАМОЛЬ» … було втрачено військове майно, а саме:",
+    },
+    lostProperty: [
+      {
+        service: "Речова служба тилу логістики",
+        subDivisions: [
+          {
+            subDivision: "2 зенітна ракетна батарея",
+            listOfProperty: [
+              {
+                id: "item_1",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+              {
+                id: "item_2",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+              {
+                id: "item_3",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+            ],
+          },
+          {
+            subDivision: "2 зенітна ракетна батарея",
+            listOfProperty: [
+              {
+                id: "item_1",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+              {
+                id: "item_2",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+              {
+                id: "item_3",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        service: "Тилова служба",
+        subDivisions: [
+          {
+            subDivision: "Служба автомобілів",
+            listOfProperty: [
+              {
+                id: "item_1",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+              {
+                id: "item_2",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+              {
+                id: "item_3",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+            ],
+          },
+          {
+            subDivision: "колесна рота",
+            listOfProperty: [
+              {
+                id: "item_1",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+              {
+                id: "item_2",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+              {
+                id: "item_3",
+                itemName: "23 мм ЗУ-23-2",
+                unitOfMeasurement: "шт",
+                quantity: "1",
+                manufactureYear: "2022",
+                cost: {
+                  value:
+                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
+                  sum: 1250.0,
+                  currency: "грн",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    eventConfirmation: {
+      text: "Особовий склад … виконували бойові завдання поблизу населеного пункту Курдюпівка Донецької області.",
+    },
+    directiveSection: {
+      text: "1.        Безповоротні втрати майна військової частини А8888 в сумі 124 142,44 грн …",
+    },
+    signer: {
+      position: "Командир зенітного ракетного дивізіону",
+      militaryUnit: "військової частини А8888",
+      rank: "полковник",
+      firstName: "Степан",
+      lastName: "ЧАПОВАР",
+    },
+  },
+  approvalAndVisa: {
+    approvals: [
+      {
+        id: "approval_001",
+        position:
+          "Старший оперативний черговий відділення поточних бойових дій командного пункту штабу військової частини А0000",
+        rank: "полковник",
+        firstName: "Олександр",
+        lastName: "КИРИЧЕНКО",
+        approvalDate: {
+          day: "",
+          month: "",
+          year: "2026",
+        },
+      },
+      {
+        id: "approval_002",
+        position:
+          "Начальник служби наземних систем озброєння озброєння логістики військової частини А0000",
+        rank: "полковник",
+        firstName: "Олександр",
+        lastName: "КИРИЧЕНКО",
+        approvalDate: {
+          day: "",
+          month: "",
+          year: "2026",
+        },
+      },
+    ],
+
+    legalApproval: {
+      position:
+        "Помічник командира частини з правової роботи начальник юридичної служби військової частини А0000",
+      rank: "полковник",
+      firstName: "Юрій",
+      lastName: "ЛУЦЕНКО",
+      approvalDate: {
+        day: "",
+        month: "",
+        year: "2026",
+      },
+    },
+
+    orderPreparedBy: {
+      position:
+        "Помічник командира частини з правової роботи начальник юридичної служби військової частини А0000",
+      rank: "полковник",
+      firstName: "Юрій",
+      lastName: "ЛУЦЕНКО",
+      preparedDate: {
+        day: "",
+        month: "",
+        year: "2026",
+      },
+    },
+  },
+  printSettings: {
+    printMode: "hybrid_last_two_duplex",
+    hybridPrint: {
+      enabled: true,
+      insertBlankPages: true,
+      blankPageStrategy: "after_each_page_before_last_two",
+      finalDuplexPageCount: 2,
+      printerDuplexMode: "long_edge",
+      outputMode: "single_word_with_blank_pages",
+    },
+  },
+}
