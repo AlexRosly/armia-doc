@@ -25,7 +25,7 @@ const downloadFile = async (req, res) => {
 
     return res.download(filePath);
   } catch (error) {
-    console.error(error);
+    console.error("Error in controller downloadFile:", error);
 
     return res.status(500).json({
       error: "INTERNAL_SERVER_ERROR",

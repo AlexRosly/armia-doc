@@ -1,0 +1,148 @@
+// const fs = require("fs/promises");
+// const { generateSingleTemplate } = require("../shared");
+// const { mergeDocuments } = require("../../word");
+// const buildTemplateDataOrderMain = require("./buildTemplateDataOrderMain");
+// const buildTemplateDataOrderApproval = require("./buildTemplateDataOrderApproval");
+
+// const generateOrderDocument = async (payload, outputPath, profile) => {
+//   const mainTemplate = profile.templates?.main;
+//   const approvalTemplate = profile.templates?.approval;
+
+//   if (!mainTemplate || !approvalTemplate) {
+//     throw new Error(
+//       "Order profile must contain templates.main and templates.approval",
+//     );
+//   }
+
+//   const mainData = buildTemplateDataOrderMain(payload, profile);
+//   const approvalData = buildTemplateDataOrderApproval(payload, profile);
+
+//   const mainBuffer = await generateSingleTemplate({
+//     documentType: "order",
+//     template: mainTemplate,
+//     data: mainData,
+//   });
+
+//   const approvalBuffer = await generateSingleTemplate({
+//     documentType: "order",
+//     template: approvalTemplate,
+//     data: approvalData,
+//   });
+
+//   const mergedBuffer = mergeDocuments([mainBuffer, approvalBuffer]);
+
+//   await fs.writeFile(outputPath, mergedBuffer);
+
+//   return outputPath;
+// };
+
+// module.exports = generateOrderDocument;
+// const fs = require("fs/promises");
+// const { generateSingleTemplate } = require("../shared");
+// const { mergeDocuments } = require("../../word");
+// const buildTemplateDataOrder = require("./buildTemplateDataOrder");
+
+// const generateOrderDocument = async (payload, outputPath, profile) => {
+//   const mainTemplate = profile.templates?.main;
+//   const approvalTemplate = profile.templates?.approval;
+
+//   if (!mainTemplate || !approvalTemplate) {
+//     throw new Error(
+//       "Order profile must contain templates.main and templates.approval",
+//     );
+//   }
+
+//   const data = buildTemplateDataOrder(payload, profile);
+
+//   const mainBuffer = await generateSingleTemplate({
+//     documentType: "order",
+//     template: mainTemplate,
+//     data,
+//   });
+
+//   const approvalBuffer = await generateSingleTemplate({
+//     documentType: "order",
+//     template: approvalTemplate,
+//     data,
+//   });
+
+//   const mergedBuffer = mergeDocuments([mainBuffer, approvalBuffer]);
+
+//   await fs.writeFile(outputPath, mergedBuffer);
+
+//   return outputPath;
+// };
+
+// module.exports = generateOrderDocument;
+const fs = require("fs/promises");
+const buildTemplateData = require("./buildTemplateDataOrder");
+const { generateSingleTemplate } = require("../shared");
+const { mergeDocuments } = require("../../word");
+
+const generateOrderDocument = async (payload, outputPath, profile) => {
+  if (!profile?.orderProfile?.template) {
+    throw new Error("profile.orderProfile.template is required");
+  }
+
+  if (!profile?.approvalProfile?.template) {
+    throw new Error("profile.approvalProfile.template is required");
+  }
+
+  const data = buildTemplateData(payload, profile);
+
+  const orderBuffer = await generateSingleTemplate({
+    documentType: "order",
+    templateSubfolder: "order",
+    template: profile.orderProfile.template,
+    data,
+  });
+
+  const approvalBuffer = await generateSingleTemplate({
+    documentType: "order",
+    templateSubfolder: "approval",
+    template: profile.approvalProfile.template,
+    data,
+  });
+
+  const mergedBuffer = mergeDocuments([orderBuffer, approvalBuffer]);
+
+  await fs.writeFile(outputPath, mergedBuffer);
+
+  return outputPath;
+};
+
+module.exports = generateOrderDocument;
+
+// const generateOrderDocument = async (payload, outputPath, profile) => {
+//   if (!profile?.orderProfile?.template) {
+//     throw new Error("Order profile.orderProfile.template is required");
+//   }
+
+//   if (!profile?.approvalProfile?.template) {
+//     throw new Error("Order profile.approvalProfile.template is required");
+//   }
+
+//   const data = buildTemplateData(payload, profile);
+
+//   const orderBuffer = await generateSingleTemplate({
+//     documentType: "order",
+//     templateSubfolder: "order",
+//     template: profile.orderProfile.template,
+//     data,
+//   });
+
+//   const approvalBuffer = await generateSingleTemplate({
+//     documentType: "order",
+//     templateSubfolder: "approval",
+//     template: profile.approvalProfile.template,
+//     data,
+//   });
+
+//   const mergedBuffer = mergeDocuments([orderBuffer, approvalBuffer]);
+
+//   await fs.writeFile(outputPath, mergedBuffer);
+
+//   return outputPath;
+// };
+
+// module.exports = generateOrderDocument;

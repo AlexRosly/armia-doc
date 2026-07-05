@@ -53,57 +53,67 @@
 // };
 
 // module.exports = generateDocx;
-const fs = require("fs");
-const path = require("path");
 
-const PizZip = require("pizzip");
-const Docxtemplater = require("docxtemplater");
+//////////////05.07.26
+// const fs = require("fs");
+// const path = require("path");
 
-// const buildTemplateData = require("./buildTemplateData");
-const documents = require("../documents");
+// const PizZip = require("pizzip");
+// const Docxtemplater = require("docxtemplater");
 
-const generateDocx = async (payload, outputPath, profile = {}) => {
-  const documentConfig = documents[payload.documentType];
+// // const buildTemplateData = require("./buildTemplateData");
+// const documents = require("../documents");
 
-  if (!documentConfig) {
-    throw new Error(`Unknown document type: ${payload.documentType}`);
-  }
+// const generateDocx = async (payload, outputPath, profile = {}) => {
+//   const documentConfig = documents[payload.documentType];
 
-  const templatePath = path.join(
-    process.cwd(),
-    "src",
-    "services",
-    "documents",
-    payload.documentType,
-    "templates",
-    profile.template,
-  );
+//   if (!documentConfig) {
+//     throw new Error(`Unknown document type: ${payload.documentType}`);
+//   }
 
-  const content = fs.readFileSync(templatePath, "binary");
+//   //   if (payload.documentType === "order") {
+//   //     return generateOrder(...);
+//   // }
 
-  const zip = new PizZip(content);
+//   // return generateSingleDocument(...);
 
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-  });
+//   const templatePath = path.join(
+//     process.cwd(),
+//     "src",
+//     "services",
+//     "documents",
+//     payload.documentType,
+//     "templates",
+//     profile.template,
+//   );
 
-  const templateData = documentConfig.buildTemplateData(payload, profile);
+//   const content = fs.readFileSync(templatePath, "binary");
 
-  doc.render(templateData);
+//   const zip = new PizZip(content);
 
-  const buffer = doc.getZip().generate({
-    type: "nodebuffer",
+//   const doc = new Docxtemplater(zip, {
+//     paragraphLoop: true,
+//     linebreaks: true,
+//   });
 
-    compression: "DEFLATE",
-  });
+//   const templateData = documentConfig.buildTemplateData(payload, profile);
 
-  fs.writeFileSync(outputPath, buffer);
+//   doc.render(templateData);
 
-  return outputPath;
-};
+//   const buffer = doc.getZip().generate({
+//     type: "nodebuffer",
 
-module.exports = generateDocx;
+//     compression: "DEFLATE",
+//   });
+
+//   fs.writeFileSync(outputPath, buffer);
+
+//   return outputPath;
+// };
+
+// module.exports = generateDocx;
+//////////////05.07.26
+
 // const generateDocx = async (payload, outputPath, profile = {}) => {
 //   const templateName = profile.template || "test.docx";
 
@@ -146,6 +156,51 @@ module.exports = generateDocx;
 //   );
 
 //   return outputPath;
+// };
+
+// module.exports = generateDocx;
+// const { generateActDocument } = require("../documents/act");
+// const { generateOrderDocument } = require("../documents/order");
+// const { generateReportDocument } = require("../documents/report");
+
+const act = require("../documents/act");
+const order = require("../documents/order");
+const report = require("../documents/report");
+
+const generateDocx = async (payload, outputPath, profile) => {
+  switch (payload.documentType) {
+    case "act":
+      return act.generateActDocument(payload, outputPath, profile);
+
+    case "report":
+      return report.generateReportDocument(payload, outputPath, profile);
+
+    case "order": {
+      const resolvedProfile = order.resolveProfilePair(profile);
+      return order.generateOrderDocument(payload, outputPath, resolvedProfile);
+    }
+
+    default:
+      throw new Error(`Unsupported document type: ${payload.documentType}`);
+  }
+};
+
+module.exports = generateDocx;
+
+// const generateDocx = async (payload, outputPath, profile) => {
+//   switch (payload.documentType) {
+//     case "act":
+//       return generateActDocument(payload, outputPath, profile);
+
+//     case "order":
+//       return generateOrderDocument(payload, outputPath, profile);
+
+//     case "report":
+//       return generateReportDocument(payload, outputPath, profile);
+
+//     default:
+//       throw new Error(`Unsupported document type: ${payload.documentType}`);
+//   }
 // };
 
 // module.exports = generateDocx;

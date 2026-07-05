@@ -56,8 +56,124 @@ Backend v1 (почти завершен)
  Автоочистка через 10 минут
 
 Backend v2
- Шифрование
+ Шифрование - Проверить
  Очередь задач
  История документов
  WebSocket статусы
  Пользователи
+
+src/
+│
+├── controllers/
+│   ├── act/
+│   │   ├── createAct.js
+│   │   └── index.js
+│   ├── download/
+│   │   ├── downloadFile.js
+│   │   └── index.js
+│   ├── generation/
+│   │   ├── createGeneration.js
+│   │   └── index.js
+│   ├── import
+│   │   ├── importArmdoc.js
+│   │   └── index.js
+│   ├── order
+│   │   ├── createOrder.js
+│   │   └── index.js
+│   ├── report
+│   │   ├── createReport.js
+│   │   ├── checkStatusReport.js
+│   │   ├── downloadArmdocReport.js
+│   │   ├── downloadRepotr.js
+│   │   └── index.js
+│   └── index.js
+├── middelwares/
+│   ├── errorMiddelware.js
+│   ├── uploadArmdoc.js
+│   └── index.js
+├── models/
+│   ├── actDocument.js
+│   ├── documentModels.js
+│   ├── generationJob.js
+│   ├── orderDocument.js
+│   ├── reportDocument.js
+│   ├── reportValidator.js
+│   └── index.js
+├── routes/
+│   ├── act.js
+│   ├── armdoc.js
+│   ├── download.js
+│   ├── health.js
+│   ├── order.js
+│   └── report.js
+├── services/
+│   ├── armdoc/
+│   │   ├── decrypt.js
+│   │   ├── encrypt.js
+│   │   ├── generateArmdoc.js
+│   │   ├── importArmdoc.js
+│   │   ├── loadArmdoc.js
+│   │   ├── readArmdoc.js
+│   │   ├── validateArmdoc.js
+│   │   ├── validateDocument.js
+│   │   └── index.js
+│   ├── cleanup/
+│   │   ├── cleanupExpiredJobs.js
+│   │   ├── startCleanupScheduler.js
+│   │   └── index.js
+│   ├── documents/
+│   │   │   ├── act/
+│   │   │   │   ├── templates/
+│   │   │   │   ├── buildPropertyGroups.js
+│   │   │   │   ├── buildTemplateDataAct.js
+│   │   │   │   ├── profiles.js
+│   │   │   │   └── index.js
+│   │   │   ├── order/
+│   │   │   │   ├── templates/
+│   │   │   │   ├── buildPropertyGroups.js
+│   │   │   │   ├── buildTemplateDataOrder.js
+│   │   │   │   ├── profiles.js
+│   │   │   │   └── index.js
+│   │   │   ├── report/
+│   │   │   │   ├── templates/
+│   │   │   │   ├── buildPropertyGroups.js
+│   │   │   │   ├── buildTemplateDataReport.js
+│   │   │   │   ├── profiles.js
+│   │   │   │   └── index.js
+│   │   │   └── shared/
+│   │   │       ├── buildPropertyText.js
+│   │   │       └── index.js
+│   ├── docx/ - скорее всего уже не нужна
+│   │   ├── buildLostProperty.js
+│   │   ├── buildPropertyGroups.js
+│   │   ├── buildTemplateData.js
+│   │   ├── generateDocx.js
+│   │   └── index.js
+│   ├── generation/
+│   │   ├── createGeneration.js
+│   │   ├── runGeneration.js
+│   │   ├── startGeneration.js
+│   │   └── index.js
+│   ├── layout/
+│   │   ├── bestEffortSelector.js
+│   │   ├── profiles.js
+│   │   ├── runProfiles.js
+│   │   ├── validateLayout.js
+│   │   └── index.js
+│   ├── pdf/
+│   │   ├── convertToPdf.js
+│   │   └── index.js
+│   ├── word/
+│   │   ├── renderTemplate.js
+│   │   └── index.js
+│   └── index.js
+├── utils/
+│   ├── logger.js
+│   └── index.js
+├── storage/
+│   ├── docx/
+│   ├── pdf/
+│   └── armdoc/
+├── templates/ - уже не нужна
+│   └── report-template.docx
+└── app.js

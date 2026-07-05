@@ -1,6 +1,6 @@
 const { GenerationJob } = require("../../models");
 
-const checkStatusReport = async (req, res) => {
+const checkStatus = async (req, res) => {
   const job = await GenerationJob.findById(req.params.jobId);
 
   if (!job) {
@@ -39,4 +39,4 @@ const checkStatusReport = async (req, res) => {
   });
 };
 
-module.exports = checkStatusReport;
+module.exports = checkStatus;

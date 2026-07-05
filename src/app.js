@@ -10,7 +10,10 @@ const { cleanup: ctrl } = require("./services");
 const createReportRouter = require("./routes/report");
 const createOrderRouter = require("./routes/order");
 const createActRouter = require("./routes/act");
+const checkStatusRouter = require("./routes/checkStatus");
 const downloadRouter = require("./routes/download");
+const importRouter = require("./routes/armdoc");
+const generationRouter = require("./routes/deleteGeneration");
 const healthRouter = require("./routes/health");
 
 // const swaggerUi = require("swagger-ui-express");
@@ -39,10 +42,13 @@ app.use(
 );
 
 app.use("/api/report", createReportRouter);
-app.use("/api/download", downloadRouter);
 app.use("/api/order", createOrderRouter);
 app.use("/api/act", createActRouter);
-app.use("/api/healht", healthRouter);
+app.use("/api/check-status", checkStatusRouter);
+app.use("/api/download", downloadRouter);
+app.use("/api/import", importRouter);
+app.use("/generation", generationRouter);
+app.use("/api/health", healthRouter);
 
 app.use(errorMiddleware);
 

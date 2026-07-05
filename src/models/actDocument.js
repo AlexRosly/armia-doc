@@ -88,19 +88,24 @@ const CostSchema = Schema(
       default: "",
     },
 
-    totalCostUah: {
-      type: String,
+    // totalCostUah: {
+    //   type: String,
 
-      default: "",
-    },
+    //   default: "",
+    // },
 
-    totalResidualCostUah: {
-      type: String,
+    // totalResidualCostUah: {
+    //   type: String,
 
-      default: "",
-    },
+    //   default: "",
+    // },
 
     currency: {
+      type: String,
+
+      default: "грн",
+    },
+    grandTotalResidualCostUah: {
       type: String,
 
       default: "грн",
@@ -111,29 +116,29 @@ const CostSchema = Schema(
 
 const WriteOffValueSchema = Schema(
   {
-    type: {
+    totalItemsCount: {
       type: String,
 
       default: "",
     },
 
-    label: {
+    grandTotalResidualCostUah: {
       type: String,
 
       default: "",
     },
 
-    amountUah: {
-      type: String,
+    // amountUah: {
+    //   type: String,
 
-      default: "",
-    },
+    //   default: "",
+    // },
 
-    currency: {
-      type: String,
+    // currency: {
+    //   type: String,
 
-      default: "грн",
-    },
+    //   default: "грн",
+    // },
   },
   { _id: false },
 );
@@ -164,7 +169,7 @@ const PropertySchema = Schema(
       default: "",
     },
 
-    manufactureYear: {
+    nomenclatureCode: {
       type: String,
 
       default: "",
@@ -181,16 +186,19 @@ const PropertySchema = Schema(
 
       default: "",
     },
-
-    cost: CostSchema,
-
-    writeOffValue: WriteOffValueSchema,
-
-    note: {
+    totalItemsCount: {
       type: String,
 
       default: "",
     },
+
+    cost: CostSchema,
+
+    // note: {
+    //   type: String,
+
+    //   default: "",
+    // },
   },
   { _id: false },
 );
@@ -202,7 +210,11 @@ const LostPropertySchema = Schema(
 
       default: "",
     },
+    totalResidualCostUah: {
+      type: String,
 
+      default: "",
+    },
     listOfProperty: [PropertySchema],
   },
   { _id: false },
@@ -476,6 +488,7 @@ const DocumentDataSchema = Schema(
     accountingDetails: AccountingDetailsSchema,
 
     lostProperty: [LostPropertySchema],
+    writeOffValue: WriteOffValueSchema,
 
     eventDescription: TextBlockSchema,
 

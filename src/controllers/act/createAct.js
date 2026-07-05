@@ -1,30 +1,54 @@
+// const { ActDocument } = require("../../models");
+
+// const {
+//   createGenerationJob,
+//   startGeneration,
+// } = require("../../services/generation");
+
+// const createAct = async (req, res) => {
+//   try {
+//     const order = await ActDocument.create(req.body);
+//     const job = await createGenerationJob(order);
+
+//     startGeneration(order, job);
+
+//     return res.status(201).json({
+//       jobId: job._id,
+
+//       status: "processing",
+//     });
+//   } catch (error) {
+//     console.error(error);
+
+//     return res.status(500).json({
+//       status: 500,
+
+//       message: "Internal server error",
+//     });
+//   }
+// };
+
+// module.exports = createAct;
 const { ActDocument } = require("../../models");
 
-const {
-  createGenerationJob,
-  startGeneration,
-} = require("../../services/generation");
+const { persistAndGenerate } = require("../../services/generation");
 
-const createAct = async (req, res) => {
+const createAct = async (req, res, next) => {
   try {
-    const order = await ActDocument.create(req.body);
-    const job = await createGenerationJob(order);
+    const { document, job } = await persistAndGenerate({
+      model: ActDocument,
 
-    startGeneration(order, job);
+      payload: req.body,
+    });
 
-    return res.status(201).json({
+    res.status(201).json({
+      documentId: document._id,
+
       jobId: job._id,
-
-      status: "processing",
     });
   } catch (error) {
-    console.error(error);
-
-    return res.status(500).json({
-      status: 500,
-
-      message: "Internal server error",
-    });
+    console.error("Error in controller createAct:", error);
+    next(error);
   }
 };
 

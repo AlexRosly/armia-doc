@@ -29,64 +29,21 @@
 //     pages,
 //   };
 // };
-const path = require("path");
+// const path = require("path");
 // const profiles = require("./profiles");
 // const bestEffortSelector = require("./bestEffortSelector");
-const { generateDocx } = require("../docx");
-const { convertToPdf } = require("../pdf");
-const validateLayout = require("./validateLayout");
-const documents = require("../documents");
-
-const runProfiles = async (report, job) => {
-  let bestResult = null;
-
-  const documentConfig = documents[report.documentType];
-
-  const profiles = documentConfig.profiles;
-
-  for (const profile of profiles) {
-    const docxPath = path.join(
-      process.cwd(),
-      "storage",
-      "docx",
-      `${job._id}.docx`,
-    );
-
-    const pdfDir = path.join(process.cwd(), "storage", "pdf");
-
-    await generateDocx(report.toObject(), docxPath, profile);
-
-    await convertToPdf(docxPath, pdfDir);
-
-    const pdfPath = path.join(pdfDir, `${job._id}.pdf`);
-
-    const pages = await validateLayout(pdfPath);
-
-    const hasError = pages.some((page) => page.status === "below_min");
-
-    if (!hasError) {
-      return {
-        status: "passed",
-
-        profile: profile.name,
-
-        pages,
-      };
-    }
-
-    bestResult = {
-      status: "best_effort",
-
-      profile: profile.name,
-
-      pages,
-    };
-  }
-  return bestResult;
-};
+/////////////05.07
+// const { generateDocx } = require("../docx");
+// const { convertToPdf } = require("../pdf");
+// const validateLayout = require("./validateLayout");
+// const documents = require("../documents");
 
 // const runProfiles = async (report, job) => {
 //   let bestResult = null;
+
+//   const documentConfig = documents[report.documentType];
+
+//   const profiles = documentConfig.profiles;
 
 //   for (const profile of profiles) {
 //     const docxPath = path.join(
@@ -98,6 +55,10 @@ const runProfiles = async (report, job) => {
 
 //     const pdfDir = path.join(process.cwd(), "storage", "pdf");
 
+//     console.log("[runProfiles] report.documentType:", report.documentType);
+//     console.log("[runProfiles] profile:", profile);
+//     console.log("[runProfiles] docxPath:", docxPath);
+
 //     await generateDocx(report.toObject(), docxPath, profile);
 
 //     await convertToPdf(docxPath, pdfDir);
@@ -106,9 +67,9 @@ const runProfiles = async (report, job) => {
 
 //     const pages = await validateLayout(pdfPath);
 
-//     const hasErrors = pages.some((page) => page.status === "below_min");
+//     const hasError = pages.some((page) => page.status === "below_min");
 
-//     if (!hasErrors) {
+//     if (!hasError) {
 //       return {
 //         status: "passed",
 
@@ -126,85 +87,138 @@ const runProfiles = async (report, job) => {
 //       pages,
 //     };
 //   }
-
 //   return bestResult;
 // };
+/////////////05.07
+const path = require("path");
+const { generateDocx } = require("../docx");
+const { convertToPdf } = require("../pdf");
+const validateLayout = require("./validateLayout");
+const documents = require("../documents");
 
-// const runProfiles = async (report, jobId) => {
-//   const candidates = [];
+const buildPayload = (report) => ({
+  ...report.toObject(),
+  documentType: report.documentType,
+});
 
-//   for (const profile of profiles) {
-//     const docxPath = path.join(
-//       process.cwd(),
-//       "storage",
-//       "docx",
-//       `${jobId}.docx`,
-//     );
+const buildDocxPath = (job) =>
+  path.join(process.cwd(), "storage", "docx", `${job._id}.docx`);
 
-//     const pdfDir = path.join(process.cwd(), "storage", "pdf");
+const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
 
-//     const pdfPath = path.join(pdfDir, `${jobId}.pdf`);
+const getProfileCandidates = (documentType, documentConfig) => {
+  if (documentType === "order") {
+    const { orderProfiles = [], approvalProfiles = [] } =
+      documentConfig.profiles || {};
 
-//     await generateDocx(report.toObject(), docxPath, profile);
+    return orderProfiles.flatMap((orderProfile) =>
+      approvalProfiles.map((approvalProfile) => ({
+        profileName: `${orderProfile.name} + ${approvalProfile.name}`,
+        profile: {
+          orderProfile,
+          approvalProfile,
+        },
+      })),
+    );
+  }
 
-//     await convertToPdf(docxPath, pdfDir);
+  const profiles = documentConfig.profiles || [];
 
-//     const pages = await validateLayout(pdfPath);
+  return profiles.map((profile) => ({
+    profileName: profile.name,
+    profile,
+  }));
+};
 
-//     const passed = pages.every(
-//       (page) => page.status === "target" || page.status === "last_page_allowed",
-//     );
+const evaluateCandidate = async ({
+  payload,
+  docxPath,
+  pdfDir,
+  profile,
+  profileName,
+}) => {
+  try {
+    await generateDocx(payload, docxPath, profile);
+    await convertToPdf(docxPath, pdfDir);
 
-//     const result = {
-//       status: passed ? "passed" : "best_effort",
+    const pdfPath = path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
+    const pages = await validateLayout(pdfPath);
+    const hasLayoutError = pages.some((page) => page.status === "below_min");
 
-//       profile: profile.name,
+    return {
+      ok: true,
+      profile: profileName,
+      pages,
+      hasLayoutError,
+    };
+  } catch (error) {
+    console.error(`[runProfiles] candidate failed: ${profileName}`);
+    console.error(error.message);
 
-//       pages,
-//     };
+    return {
+      ok: false,
+      profile: profileName,
+      pages: [],
+      hasLayoutError: true,
+      error: error.message,
+    };
+  }
+};
 
-//     candidates.push(result);
+const runProfiles = async (report, job) => {
+  const documentType = report.documentType;
+  const documentConfig = documents[documentType];
 
-//     if (passed) {
-//       return result;
-//     }
-//   }
+  if (!documentConfig) {
+    throw new Error(`Document config not found for type: ${documentType}`);
+  }
 
-//   return bestEffortSelector(candidates);
-// };
+  const payload = buildPayload(report);
+  const docxPath = buildDocxPath(job);
+  const pdfDir = buildPdfDir();
+  const candidates = getProfileCandidates(documentType, documentConfig);
 
-// const runProfiles = async (generateProfile) => {
-//   let bestResult = null;
+  if (!candidates.length) {
+    throw new Error(
+      `No profiles configured for document type: ${documentType}`,
+    );
+  }
 
-//   for (const profile of profiles) {
-//     const pdfPath = await generateProfile(profile);
+  let bestResult = null;
 
-//     const pages = await validateLayout(pdfPath);
+  for (const candidate of candidates) {
+    const result = await evaluateCandidate({
+      payload,
+      docxPath,
+      pdfDir,
+      profile: candidate.profile,
+      profileName: candidate.profileName,
+    });
 
-//     const failedPages = pages.filter((page) => page.status !== "passed");
+    if (!result.ok) {
+      continue;
+    }
 
-//     const result = {
-//       status: failedPages.length === 0 ? "passed" : "best_effort",
+    if (!result.hasLayoutError) {
+      return {
+        status: "passed",
+        profile: result.profile,
+        pages: result.pages,
+      };
+    }
 
-//       profile: profile.name,
+    bestResult = {
+      status: "best_effort",
+      profile: result.profile,
+      pages: result.pages,
+    };
+  }
 
-//       pages,
-//     };
+  if (bestResult) {
+    return bestResult;
+  }
 
-//     if (result.status === "passed") {
-//       return result;
-//     }
-
-//     bestResult = result;
-//   }
-
-//   return (
-//     bestResult || {
-//       status: "failed",
-//       profile: null,
-//       pages: [],
-//     }
-//   );
-// };
+  throw new Error(`No valid ${documentType} profile could be generated`);
+};
 
 module.exports = runProfiles;

@@ -137,6 +137,7 @@
 
 // module.exports = runGenerationJob;
 const path = require("path");
+const fs = require("fs/promises");
 const { generateArmdoc } = require("../armdoc");
 const { runProfiles } = require("../layout");
 const { GenerationJob } = require("../../models");
@@ -163,6 +164,24 @@ const runGenerationJob = async (report, job) => {
     //
 
     const layoutResult = await runProfiles(report, job);
+
+    //
+    // VERIFY FILES
+    //
+
+    await fs.access(
+      path.join(process.cwd(), "storage", "docx", `${job._id}.docx`),
+    );
+
+    await fs.access(
+      path.join(process.cwd(), "storage", "pdf", `${job._id}.pdf`),
+    );
+
+    if (job.mode === "with_armdoc") {
+      await fs.access(
+        path.join(process.cwd(), "storage", "armdoc", `${job._id}.armdoc`),
+      );
+    }
 
     //
     // SAVE JOB
