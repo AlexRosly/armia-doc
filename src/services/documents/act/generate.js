@@ -11,9 +11,17 @@ const generateActDocument = async (payload, outputPath, profile) => {
   return generateSingleTemplate({
     documentType: "act",
     template: profile.template,
+    templateSubfolder: profile.templateSubfolder,
     data,
     outputPath,
   });
+
+  // return generateSingleTemplate({
+  //   documentType: "act",
+  //   template: profile.template,
+  //   data,
+  //   outputPath,
+  // });
 };
 
 module.exports = generateActDocument;

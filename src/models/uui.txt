@@ -1,347 +1,280 @@
+я про ту саму безпеку думаю як бачу полковника))) 
+я розумію шо не на часі, але от момент який краще закласти відразу 
+(ну то сам вирішуй - зара то не головне) - шоб легше потім секьюритизувати  tmpfs only
+Тимчасові файли тільки в RAM:
+/tmp/job-* на tmpfs
+без disk persistence
+без backup
+без S3
+без volume
+
+
+Нормально и надолго — тогда так.
+
+Backend v2 roadmap
+Этап 1. Очередь задач — фундамент
+Цель: вынести генерацию в устойчивый background pipeline.
+
+Делать
+Поднять Redis
+Взять BullMQ
+Разделить роли:
+API server — принимает запрос, создаёт job
+Worker — обрабатывает генерацию
+Перевести генерацию на очередь:
+create job
+enqueue
+worker processing
+update status in DB
+Статусы job
+Зафиксировать enum:
+
+js
+
+queued
+processing
+rendering_docx
+converting_pdf
+validating_layout
+ready
+failed
+expired
+cleaned
+cancelled
+Поля GenerationJob
+Добавить/нормализовать:
+
+js
+
+status
+step
+progress
+error
+startedAt
+finishedAt
+expiresAt
+attempts
+result
+files
+Пример:
+
+js
+
 {
-  "caseId": "case_123",
-  "documentType": "report",
-  "mode": "with_armdoc",
-  "data": {
-    "documentDetails": {
-      "recipient": "Командиру військової частини А1302",
-      "documentTitle": "РАПОРТ"
-    },
-    "eventDescription": {
-      "text": "Дійсним доповідаю, що 21 березня 2023 року..."
-    },
-    "lostProperty": [
-      {
-        "id": "item_1",
-        "service": "Служба наземних систем озброєння логістики",
-        "unit": "2 зенітна ракетна батарея",
-        "itemName": "23 мм ЗУ-23-2",
-        "identification": "№ АА-1325",
-        "manufactureYear": "2022",
-        "quantity": "1 комплект",
-        "note": ""
-      },
-      {
-        "id": "item_2",
-        "service": "Речова служба тилу логістики",
-        "unit": "",
-        "itemName": "Бронежилет Корсар М3с-1-4",
-        "identification": "",
-        "manufactureYear": "",
-        "quantity": "4 комплекти",
-        "note": ""
-      }
-    ],
-    "specialPropertyCases": {
-      "status": "none",
-      "text": ""
-    },
-    "valuationAndGrounds": {
-      "text": ""
-    },
-    "lossCircumstances": {
-      "text": ""
-    },
-    "additionalInfo": {
-      "text": ""
-    },
-    "requestPart": {
-      "text": "На підставі вищевикладеного, ПРОШУ..."
-    },
-    "signer": {
-      "position": "Командир зенітного ракетного дивізіону",
-      "militaryUnit": "військова частина А1302",
-      "rank": "капітан",
-      "fullName": "Іван ПЕТРЕНКО",
-      "date": "2026-03-23"
-    }
-  }
+  status: "processing",
+  step: "converting_pdf",
+  progress: 60,
+  error: null
 }
+Что менять
+startGeneration → только создаёт job и ставит в очередь
+runGenerationJob → исполняется только worker’ом
+cleanup оставить отдельным scheduler’ом
+generation/update статусов делать централизованно
+Результат этапа
+API отвечает быстро
+генерация не блокирует request lifecycle
+можно ограничивать concurrency
+можно делать retries
+база под масштабирование готова
+Этап 2. Realtime статусы
+Цель: фронт получает живой статус job.
 
-Отлично у меня такой контроллер getGenerationStatus называется checkStatusReport, я его обновил. Также еще нужно учесть, что уже планируется генерировать еще два типа похожих документов это Приказ и Акт на списание. Приказ полностью похож на Рапорт по структуре, отличие добавлено свойство в джейсон "Оценочная стоимость".
+Рекомендация
+Для твоего кейса сначала SSE, не WebSocket.
 
+Почему
+статусы идут только сервер → клиент
+проще реализации и поддержки
+меньше инфраструктурной сложности
+для генерации документов этого обычно достаточно
+Делать
+endpoint:
+GET /jobs/:id/events — SSE stream
+endpoint:
+GET /jobs/:id — текущее состояние
+worker при смене статуса:
+обновляет Mongo
+публикует event
+Источник событий
+2 варианта:
 
-{
-  caseId: "case_stub",
-  documentType: "order",
-  mode: "with_armdoc",
-  data: {
-    orderDetails: {
-      whoseOrder: "командира військової частини А8888",
-      settlement: "м. Якмісто",
-      orderDate: "01.04.2024",
-      orderTitle: "Про списання втраченого (знищеного) військового майна",
-    },
-    eventDescription: {
-      text: "Дійсним доповідаю: 19 березня 2025 року о 08:33 год., внаслідок удару FPV-дроном-камікадзе по КСП «ТАЛАМОЛЬ» … було втрачено військове майно, а саме:",
-    },
-    lostProperty: [
-      {
-        service: "Речова служба тилу логістики",
-        subDivisions: [
-          {
-            subDivision: "2 зенітна ракетна батарея",
-            listOfProperty: [
-              {
-                id: "item_1",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-              {
-                id: "item_2",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-              {
-                id: "item_3",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-            ],
-          },
-          {
-            subDivision: "2 зенітна ракетна батарея",
-            listOfProperty: [
-              {
-                id: "item_1",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-              {
-                id: "item_2",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-              {
-                id: "item_3",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-            ],
-          },
-        ],
-      },
-      {
-        service: "Тилова служба",
-        subDivisions: [
-          {
-            subDivision: "Служба автомобілів",
-            listOfProperty: [
-              {
-                id: "item_1",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-              {
-                id: "item_2",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-              {
-                id: "item_3",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-            ],
-          },
-          {
-            subDivision: "колесна рота",
-            listOfProperty: [
-              {
-                id: "item_1",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-              {
-                id: "item_2",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-              {
-                id: "item_3",
-                itemName: "23 мм ЗУ-23-2",
-                unitOfMeasurement: "шт",
-                quantity: "1",
-                manufactureYear: "2022",
-                cost: {
-                  value:
-                    "залишкова вартість об'єкта | Загальна залишкова вартість об'єкта",
-                  sum: 1250.0,
-                  currency: "грн",
-                },
-              },
-            ],
-          },
-        ],
-      },
-    ],
-    eventConfirmation: {
-      text: "Особовий склад … виконували бойові завдання поблизу населеного пункту Курдюпівка Донецької області.",
-    },
-    directiveSection: {
-      text: "1.        Безповоротні втрати майна військової частини А8888 в сумі 124 142,44 грн …",
-    },
-    signer: {
-      position: "Командир зенітного ракетного дивізіону",
-      militaryUnit: "військової частини А8888",
-      rank: "полковник",
-      firstName: "Степан",
-      lastName: "ЧАПОВАР",
-    },
-  },
-  approvalAndVisa: {
-    approvals: [
-      {
-        id: "approval_001",
-        position:
-          "Старший оперативний черговий відділення поточних бойових дій командного пункту штабу військової частини А0000",
-        rank: "полковник",
-        firstName: "Олександр",
-        lastName: "КИРИЧЕНКО",
-        approvalDate: {
-          day: "",
-          month: "",
-          year: "2026",
-        },
-      },
-      {
-        id: "approval_002",
-        position:
-          "Начальник служби наземних систем озброєння озброєння логістики військової частини А0000",
-        rank: "полковник",
-        firstName: "Олександр",
-        lastName: "КИРИЧЕНКО",
-        approvalDate: {
-          day: "",
-          month: "",
-          year: "2026",
-        },
-      },
-    ],
+через Redis pub/sub
+через Mongo change streams
+Рекомендую: Redis pub/sub, раз Redis уже будет из-за BullMQ.
 
-    legalApproval: {
-      position:
-        "Помічник командира частини з правової роботи начальник юридичної служби військової частини А0000",
-      rank: "полковник",
-      firstName: "Юрій",
-      lastName: "ЛУЦЕНКО",
-      approvalDate: {
-        day: "",
-        month: "",
-        year: "2026",
-      },
-    },
+События
+js
 
-    orderPreparedBy: {
-      position:
-        "Помічник командира частини з правової роботи начальник юридичної служби військової частини А0000",
-      rank: "полковник",
-      firstName: "Юрій",
-      lastName: "ЛУЦЕНКО",
-      preparedDate: {
-        day: "",
-        month: "",
-        year: "2026",
-      },
-    },
-  },
-  printSettings: {
-    printMode: "hybrid_last_two_duplex",
-    hybridPrint: {
-      enabled: true,
-      insertBlankPages: true,
-      blankPageStrategy: "after_each_page_before_last_two",
-      finalDuplexPageCount: 2,
-      printerDuplexMode: "long_edge",
-      outputMode: "single_word_with_blank_pages",
-    },
-  },
-}
+job:queued
+job:processing
+job:progress
+job:completed
+job:failed
+job:expired
+job:cleaned
+Результат этапа
+фронт видит прогресс в реальном времени
+можно показывать шаги генерации
+можно уведомлять о готовности без polling
+Этап 3. Production hardening
+Цель: сделать систему устойчивой и обслуживаемой.
+
+3.1 Startup checks
+При старте проверять:
+
+Mongo доступен
+Redis доступен
+LibreOffice доступен
+storage папки существуют
+шаблоны существуют
+Если критично — не стартовать worker.
+
+3.2 Единые paths
+Сделать paths.js:
+
+js
+
+PROJECT_ROOT
+STORAGE_ROOT
+DOCX_DIR
+PDF_DIR
+ARMDOC_DIR
+TEMPLATES_DIR
+И убрать process.cwd() из критичных мест.
+
+3.3 Template validation
+На старте валидировать profiles:
+
+все шаблоны существуют
+для order существуют и order, и approval шаблоны
+Если нет — логировать список проблем.
+
+3.4 Structured logging
+Поставить нормальный логгер:
+
+pino или winston
+Минимум логировать:
+
+jobId
+documentType
+status
+step
+duration
+error
+3.5 Retry policy
+На уровне очереди:
+
+retries для временных ошибок
+no retry для конфигурационных ошибок шаблонов
+Разделить типы ошибок:
+
+transient
+permanent
+3.6 Health endpoints
+Добавить:
+
+/health
+/health/db
+/health/redis
+/health/storage
+3.7 Cleanup hardening
+Cleanup должен:
+
+удалять только expired jobs
+помечать cleaned
+логировать failed cleanup
+не удалять job, если файлы не удалились по серьёзной причине
+Технический выбор
+Брать
+BullMQ
+Redis
+SSE
+Pino
+MongoDB оставить как есть
+Не делать сразу
+WebSocket, если нужен только job-status
+свою самописную очередь
+сложную оркестрацию микросервисов
+Минимальная целевая архитектура
+API server
+Отвечает за:
+
+create generation request
+create GenerationJob
+enqueue job
+get job status
+SSE stream
+Worker
+Отвечает за:
+
+runGenerationJob
+generate docx
+convert pdf
+validate layout
+update DB
+publish status events
+Cleanup scheduler
+Отвечает за:
+
+expired jobs
+delete files
+delete source docs
+mark cleaned/delete job
+Redis
+Используется для:
+
+queue
+pub/sub для статусов
+Приоритет задач по порядку
+Спринт 1
+поднять Redis
+подключить BullMQ
+вынести генерацию в worker
+ввести нормальные статусы job
+Спринт 2
+добавить SSE endpoint
+публиковать статусы из worker
+фронт подписать на job events
+Спринт 3
+startup checks
+template validation
+paths.js
+structured logging
+health endpoints
+Что делать первым практически
+Если совсем конкретно:
+
+Шаг 1
+Создать:
+
+src/queue/connection.js
+src/queue/generationQueue.js
+src/workers/generationWorker.js
+Шаг 2
+Переделать startGeneration:
+
+create job in Mongo
+enqueue jobId
+Шаг 3
+Переделать runGenerationJob(jobId):
+
+worker читает Mongo job
+обновляет statuses
+сохраняет files/result/error
+Шаг 4
+Добавить GET /jobs/:id
+
+вернуть status, step, progress, files
+Шаг 5
+Добавить GET /jobs/:id/events
+
+SSE stream статусов
+Мой финальный совет
+Если делаешь “надолго”, то правильный следующий шаг — не WebSocket сам по себе, а BullMQ + Redis + worker separation.
+
+WebSocket/SSE без очереди — косметика.
+Очередь без realtime — уже взрослая архитектура.
+
+Если хочешь, следующим сообщением я могу дать тебе конкретную стартовую структуру папок Backend v2 и список файлов, 
+которые создать первыми под BullMQ/worker/SSE.

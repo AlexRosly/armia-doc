@@ -127,21 +127,25 @@ src/
 │   │   │   │   ├── buildPropertyGroups.js
 │   │   │   │   ├── buildTemplateDataAct.js
 │   │   │   │   ├── profiles.js
+│   │   │   │   ├── generate.js
 │   │   │   │   └── index.js
 │   │   │   ├── order/
 │   │   │   │   ├── templates/
 │   │   │   │   ├── buildPropertyGroups.js
 │   │   │   │   ├── buildTemplateDataOrder.js
 │   │   │   │   ├── profiles.js
+│   │   │   │   ├── generate.js
 │   │   │   │   └── index.js
 │   │   │   ├── report/
 │   │   │   │   ├── templates/
 │   │   │   │   ├── buildPropertyGroups.js
 │   │   │   │   ├── buildTemplateDataReport.js
 │   │   │   │   ├── profiles.js
+│   │   │   │   ├── generate.js
 │   │   │   │   └── index.js
 │   │   │   └── shared/
 │   │   │       ├── buildPropertyText.js
+│   │   │       ├── generateSingeleDocument.js
 │   │   │       └── index.js
 │   ├── docx/ - скорее всего уже не нужна
 │   │   ├── buildLostProperty.js
@@ -151,6 +155,8 @@ src/
 │   │   └── index.js
 │   ├── generation/
 │   │   ├── createGeneration.js
+│   │   ├── deleteGeneration.js
+│   │   ├── persistAndGenerate.js
 │   │   ├── runGeneration.js
 │   │   ├── startGeneration.js
 │   │   └── index.js
@@ -165,6 +171,7 @@ src/
 │   │   └── index.js
 │   ├── word/
 │   │   ├── renderTemplate.js
+│   │   ├── mergeDocuments.js
 │   │   └── index.js
 │   └── index.js
 ├── utils/

@@ -542,6 +542,11 @@ const ActDocumentSchema = Schema(
 
       enum: ["with_armdoc", "docx_only"],
     },
+    templateType: {
+      type: String,
+      enum: ["ACT_LANDSCAPE_V1", "ACT_LANDSCAPE_V2"],
+      default: "ACT_LANDSCAPE_V1",
+    },
 
     data: {
       type: DocumentDataSchema,
