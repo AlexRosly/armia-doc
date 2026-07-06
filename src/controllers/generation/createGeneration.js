@@ -1,36 +1,7 @@
 const schema = require("../../validators/report.schema");
-
 const { GenerationJob, ReportDocument } = require("../../models");
 const { generation: runGenerationJob } = require("../../services");
 
-// const createGeneration = async (req, res) => {
-//   try {
-//     const { error } = schema.validate(req.body);
-
-//     if (error) {
-//       return res.status(400).json({
-//         error: error.message,
-//       });
-//     }
-
-//     const job = await GenerationJob.create({
-//       caseId: req.body.caseId,
-//       mode: req.body.mode,
-//       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-//     });
-
-//     res.json({
-//       jobId: job._id,
-//       status: "processing",
-//     });
-//   } catch (error) {
-//     console.error(error);
-
-//     res.status(500).json({
-//       error: "INTERNAL_SERVER_ERROR",
-//     });
-//   }
-// };
 const createGeneration = async (req, res) => {
   try {
     const report = await ReportDocument.create(req.body);

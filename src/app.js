@@ -47,7 +47,7 @@ app.use("/api/act", createActRouter);
 app.use("/api/check-status", checkStatusRouter);
 app.use("/api/download", downloadRouter);
 app.use("/api/import", importRouter);
-app.use("/generation", generationRouter);
+app.use("/api/generation", generationRouter);
 app.use("/api/health", healthRouter);
 
 app.use(errorMiddleware);

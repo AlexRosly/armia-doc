@@ -8,6 +8,7 @@ const deleteGeneration = async (req, res, next) => {
       success: true,
     });
   } catch (error) {
+    console.error("Error in controller deleteGeneration:", error);
     next(error);
   }
 };

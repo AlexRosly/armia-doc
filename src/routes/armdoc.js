@@ -1,7 +1,5 @@
 const router = require("express").Router();
-
 const { importDoc: ctrl } = require("../controllers");
-
 const { uploadArmdoc } = require("../middelwares");
 
 router.post("/", uploadArmdoc.single("file"), ctrl.importArmdoc);

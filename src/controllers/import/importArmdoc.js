@@ -1,12 +1,3 @@
-// const { armdoc: ctrl } = require("../../services");
-// const { documentModels } = require("../../models");
-// const { persistAndGenerate } = require("../../services/generation");
-
-// const {
-//   createGenerationJob,
-//   runGenerationJob,
-// } = require("../../services/generation");
-
 const { documentModels } = require("../../models");
 const { readArmdoc } = require("../../services/armdoc");
 const { persistAndGenerate } = require("../../services/generation");
@@ -16,22 +7,17 @@ const importArmdoc = async (req, res, next) => {
     //
     // READ FILE
     //
-
     const document = readArmdoc(req.file);
-
     //
     // SAVE + GENERATE
     //
-
     const { document: savedDocument, job } = await persistAndGenerate({
       model: documentModels[document.documentType],
       payload: document,
     });
-
     //
     // RESPONSE
     //
-
     res.status(201).json({
       success: true,
       documentType: savedDocument.documentType,
@@ -39,6 +25,7 @@ const importArmdoc = async (req, res, next) => {
       jobId: job._id,
     });
   } catch (error) {
+    console.error("Error in controller importArmdoc:", error);
     next(error);
   }
 };
@@ -114,5 +101,3 @@ module.exports = importArmdoc;
 //     next(error);
 //   }
 // };
-
-module.exports = importArmdoc;

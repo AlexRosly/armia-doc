@@ -1,6 +1,4 @@
 const mongoose = require("mongoose");
-
-// const { createGenerationJob, startGeneration } = require("./");
 const createGenerationJob = require("./createGenerationJob");
 const startGeneration = require("./startGeneration");
 
