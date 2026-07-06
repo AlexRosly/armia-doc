@@ -141,3 +141,11 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Local generated files
+/storage/
+
+# Local templates (transferred manually, not stored in git)
+/src/services/documents/act/templates/
+/src/services/documents/order/templates/
+/src/services/documents/report/templates/
