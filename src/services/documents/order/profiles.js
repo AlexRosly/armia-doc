@@ -1,62 +1,63 @@
 const profiles = {
   orderProfiles: [
     {
-      name: "ORDER_0001_ETALON",
-      template: "ORDER_0001_ETALON.docx",
+      name: "order_0001_etalon",
+
+      template: "order_0001_etalon.docx",
     },
 
     {
-      name: "ORDER_0002_FONT_13_5",
+      name: "order_0002_font_13_5",
 
-      template: "ORDER_0002_FONT_13_5.docx",
+      template: "order_0002_font_13_5.docx",
     },
 
     {
-      name: "ORDER_0003_FONT_13",
+      name: "order_0003_font_13",
 
-      template: "ORDER_0003_FONT_13.docx",
+      template: "order_0003_font_13.docx",
     },
 
     {
-      name: "ORDER_0004_FONT_12_5",
+      name: "order_0004_font_12_5",
 
-      template: "ORDER_0004_FONT_12_5.docx",
+      template: "order_0004_font_12_5.docx",
     },
 
     {
-      name: "ORDER_0005_LINE_1_05",
+      name: "order_0005_line_1_05",
 
-      template: "ORDER_0005_LINE_1_05.docx",
+      template: "order_0005_line_1_05.docx",
     },
 
     {
-      name: "ORDER_0006_LINE_1_10",
+      name: "order_0006_line_1_10",
 
-      template: "ORDER_0006_LINE_1_10.docx",
+      template: "order_0006_line_1_10.docx",
     },
 
     {
-      name: "ORDER_0007_LINE_1_15",
+      name: "order_0007_line_1_15",
 
-      template: "ORDER_0007_LINE_1_15.docx",
+      template: "order_0007_line_1_15.docx",
     },
 
     {
-      name: "ORDER_0008_TOP_1_9",
+      name: "order_0008_top_1_9",
 
-      template: "ORDER_0008_TOP_1_9.docx",
+      template: "order_0008_top_1_9.docx",
     },
 
     {
-      name: "ORDER_0009_TOP_2_1",
+      name: "order_0009_top_2_1",
 
-      template: "ORDER_0009_TOP_2_1.docx",
+      template: "order_0009_top_2_1.docx",
     },
 
     {
-      name: "ORDER_0010_LEFT_3_4",
+      name: "order_0010_left_3_4",
 
-      template: "ORDER_0010_LEFT_3_4.docx",
+      template: "order_0010_left_3_4.docx",
     },
 
     {
@@ -8643,46 +8644,67 @@ const profiles = {
   approvalProfiles: [
     {
       name: "APPROVAL_01__FS12",
+
       template: "APPROVAL_01__FS12.docx",
     },
+
     {
       name: "APPROVAL_02__FS11_5",
+
       template: "APPROVAL_02__FS11_5.docx",
     },
+
     {
       name: "APPROVAL_03__FS11",
+
       template: "APPROVAL_03__FS11.docx",
     },
+
     {
       name: "APPROVAL_04__FS10_5",
+
       template: "APPROVAL_04__FS10_5.docx",
     },
+
     {
       name: "APPROVAL_05__FS10",
+
       template: "APPROVAL_05__FS10.docx",
     },
+
     {
       name: "APPROVAL_06__FS9_5",
+
       template: "APPROVAL_06__FS9_5.docx",
     },
+
     {
       name: "APPROVAL_07__FS9",
+
       template: "APPROVAL_07__FS9.docx",
     },
+
     {
       name: "APPROVAL_08__FS8_5",
+
       template: "APPROVAL_08__FS8_5.docx",
     },
+
     {
       name: "APPROVAL_09__FS8",
+
       template: "APPROVAL_09__FS8.docx",
     },
+
     {
       name: "APPROVAL_10__FS7_5",
+
       template: "APPROVAL_10__FS7_5.docx",
     },
+
     {
       name: "APPROVAL_11__FS7",
+
       template: "APPROVAL_11__FS7.docx",
     },
   ],
