@@ -1,63 +1,63 @@
 const profiles = {
   orderProfiles: [
     {
-      name: "order_0001_etalon",
+      name: "ORDER_0001_ETALON",
 
-      template: "order_0001_etalon.docx",
+      template: "ORDER_0001_ETALON.docx",
     },
 
     {
-      name: "order_0002_font_13_5",
+      name: "ORDER_0002_FONT_13_5",
 
-      template: "order_0002_font_13_5.docx",
+      template: "ORDER_0002_FONT_13_5.docx",
     },
 
     {
-      name: "order_0003_font_13",
+      name: "ORDER_0003_FONT_13",
 
-      template: "order_0003_font_13.docx",
+      template: "ORDER_0003_FONT_13.docx",
     },
 
     {
-      name: "order_0004_font_12_5",
+      name: "ORDER_0004_FONT_12_5",
 
-      template: "order_0004_font_12_5.docx",
+      template: "ORDER_0004_FONT_12_5.docx",
     },
 
     {
-      name: "order_0005_line_1_05",
+      name: "ORDER_0005_LINE_1_05",
 
-      template: "order_0005_line_1_05.docx",
+      template: "ORDER_0005_LINE_1_05.docx",
     },
 
     {
-      name: "order_0006_line_1_10",
+      name: "ORDER_0006_LINE_1_10",
 
-      template: "order_0006_line_1_10.docx",
+      template: "ORDER_0006_LINE_1_10.docx",
     },
 
     {
-      name: "order_0007_line_1_15",
+      name: "ORDER_0007_LINE_1_15",
 
-      template: "order_0007_line_1_15.docx",
+      template: "ORDER_0007_LINE_1_15.docx",
     },
 
     {
-      name: "order_0008_top_1_9",
+      name: "ORDER_0008_TOP_1_9",
 
-      template: "order_0008_top_1_9.docx",
+      template: "ORDER_0008_TOP_1_9.docx",
     },
 
     {
-      name: "order_0009_top_2_1",
+      name: "ORDER_0009_TOP_2_1",
 
-      template: "order_0009_top_2_1.docx",
+      template: "ORDER_0009_TOP_2_1.docx",
     },
 
     {
-      name: "order_0010_left_3_4",
+      name: "ORDER_0010_LEFT_3_4",
 
-      template: "order_0010_left_3_4.docx",
+      template: "ORDER_0010_LEFT_3_4.docx",
     },
 
     {
