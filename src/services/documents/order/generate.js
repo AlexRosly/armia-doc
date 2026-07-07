@@ -88,7 +88,7 @@ const generateOrderDocument = async (payload, outputPath, profile) => {
     throw new Error("profile.approvalProfile.template is required");
   }
 
-  const data = buildTemplateData(payload, profile);
+  const data = buildTemplateData(payload);
 
   const orderBuffer = await generateSingleTemplate({
     documentType: "order",

@@ -394,11 +394,13 @@ const mergeDocuments = (buffers) => {
   );
 
   baseZip.file("word/document.xml", mergedXml);
-  console.log(
-    "[mergeDocuments] buffer sizes:",
-    buffers.map((buffer) => buffer.length),
-  );
 
+  if (process.env.DEBUG_MERGE === "1") {
+    console.log(
+      "[mergeDocuments] buffer sizes:",
+      buffers.map((buffer) => buffer.length),
+    );
+  }
   return baseZip.generate({
     type: "nodebuffer",
     compression: "DEFLATE",
