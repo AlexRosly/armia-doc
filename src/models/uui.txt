@@ -278,3 +278,375 @@ WebSocket/SSE без очереди — косметика.
 
 Если хочешь, следующим сообщением я могу дать тебе конкретную стартовую структуру папок Backend v2 и список файлов, 
 которые создать первыми под BullMQ/worker/SSE.
+
+///////////////////////////////
+SECURE
+///////////////////////////////
+Да — тут ошибка не в cleanup-логике удаления файлов, а в сетевом доступе к MongoDB Atlas.
+
+Что означает ошибка
+Главное:
+txt
+
+MongoServerSelectionError: getaddrinfo ENOTFOUND ac-xb3mtux-shard-00-00.rw9q9iq.mongodb.net
+Это значит:
+
+Node.js не смог через DNS разрешить hostname Mongo Atlas.
+
+То есть проблема в одном из:
+
+интернет / сеть
+DNS
+VPN / proxy
+временный сбой Atlas/DNS
+локальный firewall / антивирус
+нестабильное соединение
+А ECONNABORTED здесь вторично
+Вот это:
+
+txt
+
+Error: write ECONNABORTED
+обычно уже следствие того, что соединение с Mongo порвалось.
+
+То есть sequence примерно такой:
+
+cleanupScheduler пытается сходить в Mongo
+DNS/сеть ломается
+драйвер не может выбрать сервер
+сокет рвётся
+ты видишь ECONNABORTED
+Ключевая причина именно тут
+txt
+
+getaddrinfo ENOTFOUND ...mongodb.net
+ENOTFOUND = hostname не найден.
+
+Это не связано с:
+tmpfs
+storage
+templates
+путями
+act profiles
+Это отдельно сетевая проблема.
+
+Что проверить прямо сейчас
+1. Интернет и DNS
+Попробуй в терминале:
+
+bash
+
+nslookup ac-xb3mtux-shard-00-00.rw9q9iq.mongodb.net
+Если не резолвится — проблема подтверждается.
+
+2. Доступен ли Atlas вообще
+Попробуй:
+
+bash
+
+ping google.com
+nslookup google.com
+Если Google резолвится, а Mongo-хост нет — возможно:
+
+DNS странно режет домен
+корпоративная сеть
+провайдер
+VPN
+3. VPN / прокси / антивирус
+Очень часто мешают:
+
+AdGuard
+антивирус с HTTPS inspection
+VPN
+корпоративный proxy
+локальный firewall
+4. Mongo Atlas Network Access
+Проверь в Atlas:
+
+твой IP разрешён?
+если IP dynamic, он мог измениться
+Но важный момент:
+если бы проблема была только в whitelist IP, обычно был бы не ENOTFOUND, а уже ошибка авторизации/доступа.
+Так что сейчас больше похоже именно на DNS/network.
+
+5. Строку подключения
+Проверь MONGO_URI.
+Если в hostname опечатка — будет то же самое.
+
+Почему cleanupScheduler так шумит
+Судя по логам, scheduler запускается по таймеру и на каждом тике делает запрос в Mongo.
+Когда Mongo недоступна, он каждый раз логирует full stack trace.
+
+Это норм в dev, но в проде лучше сделать мягче.
+
+Что я бы улучшил в cleanupScheduler
+1. Не падать, а логировать кратко
+2. Добавить защиту от overlapping runs
+3. Добавить backoff / cooldown при Mongo network errors
+Пример улучшенного scheduler
+Вот аккуратная версия:
+
+js
+
+let isCleanupRunning = false;
+let mongoFailureCount = 0;
+
+const isMongoNetworkError = (error) => {
+  const message = error?.message || "";
+  const code = error?.code || "";
+  const causeCode = error?.cause?.code || "";
+
+  return (
+    code === "ECONNABORTED" ||
+    message.includes("MongoServerSelectionError") ||
+    message.includes("ENOTFOUND") ||
+    causeCode === "ENOTFOUND"
+  );
+};
+
+const runCleanupSafely = async () => {
+  if (isCleanupRunning) {
+    console.warn("[cleanupScheduler] skip: previous cleanup still running");
+    return;
+  }
+
+  isCleanupRunning = true;
+
+  try {
+    await cleanupExpiredJobs();
+    mongoFailureCount = 0;
+  } catch (error) {
+    if (isMongoNetworkError(error)) {
+      mongoFailureCount += 1;
+      console.warn(
+        `[cleanupScheduler] Mongo temporarily unavailable (${mongoFailureCount}): ${error.message}`,
+      );
+    } else {
+      console.error("[cleanupScheduler] cleanup error:", error);
+    }
+  } finally {
+    isCleanupRunning = false;
+  }
+};
+Теперь про твой запрос: безболезненный план миграции на tmpfs workspace
+Я дам именно эволюционный план, чтобы не сломать текущую генерацию и cleanup.
+
+Цель миграции
+Не переписать весь проект сразу, а перейти от:
+
+text
+
+storage/docx
+storage/pdf
+storage/armdoc
+к модели:
+
+text
+
+tmpfs workspace per job
+при этом:
+
+текущая генерация продолжает работать
+cleanup продолжает работать
+можно откатиться
+План миграции на tmpfs workspace
+Этап 1. Ввести job workspace, но без отказа от storage
+Цель: добавить временную рабочую папку на job, не ломая текущий пайплайн.
+
+Что сделать
+Добавить helper путей:
+
+js
+
+getJobWorkspace(jobId)
+getJobDocxPath(jobId)
+getJobPdfPath(jobId)
+getJobArmdocPath(jobId)
+Например:
+
+js
+
+/tmp/armia-doc/job-<id>/
+  docx/
+  pdf/
+  armdoc/
+или проще:
+
+js
+
+/tmp/armia-doc/job-<id>/
+  result.docx
+  result.pdf
+  result.armdoc
+Пока что:
+генерация идёт в workspace
+после успеха файлы копируются в старый storage/
+cleanup удаляет и workspace, и storage
+Что это даёт
+ты уже тестируешь tmpfs
+старый контракт по job.files не ломается
+скачивание и cleanup продолжают жить как раньше
+Этап 2. Cleanup научить удалять workspace
+Цель: cleanup работает с двумя слоями:
+
+старый storage
+новый workspace
+Что добавить
+В job можно сохранить:
+
+js
+
+workspaceDir: "/tmp/armia-doc/job-<id>"
+или вычислять по job._id.
+
+Cleanup:
+
+удаляет persistent файлы из storage
+удаляет workspace directory рекурсивно
+Если workspace уже нет — не ошибка.
+
+Этап 3. Конвертация и layout validation полностью перевести на workspace
+Цель: весь промежуточный pipeline живёт только во временной папке.
+
+Тогда:
+generateDocx пишет в workspace
+convertToPdf берёт docx из workspace
+validateLayout читает pdf из workspace
+После успеха:
+либо копируешь финальные файлы в storage
+либо сразу отдаёшь клиенту и ничего не сохраняешь
+Этап 4. Решить судьбу persistent storage
+Тут уже два режима.
+
+Режим A — совместимый
+Оставляешь storage/ для финальных файлов.
+Это безопасный переход.
+
+Режим B — strict tmpfs
+Финальные файлы тоже только в workspace/tmpfs, и после TTL исчезают.
+Но это уже следующий шаг, не первый.
+
+Как сделать это безболезненно в коде
+Шаг 1. Ввести единый path-helper
+Сделай модуль, например:
+
+js
+
+// src/utils/paths.js
+const path = require("path");
+const os = require("os");
+
+const PROJECT_ROOT = path.resolve(__dirname, "../..");
+const STORAGE_ROOT = path.join(PROJECT_ROOT, "storage");
+const TMP_ROOT = path.join(os.tmpdir(), "armia-doc");
+
+const getJobWorkspaceDir = (jobId) => path.join(TMP_ROOT, `job-${jobId}`);
+
+const getJobWorkspaceFile = (jobId, fileName) =>
+  path.join(getJobWorkspaceDir(jobId), fileName);
+
+module.exports = {
+  PROJECT_ROOT,
+  STORAGE_ROOT,
+  TMP_ROOT,
+  getJobWorkspaceDir,
+  getJobWorkspaceFile,
+};
+Шаг 2. Перед генерацией создавать workspace
+Например:
+
+js
+
+const fs = require("fs/promises");
+const { getJobWorkspaceDir } = require("../utils/paths");
+
+const ensureJobWorkspace = async (jobId) => {
+  const dir = getJobWorkspaceDir(jobId);
+  await fs.mkdir(dir, { recursive: true });
+  return dir;
+};
+Шаг 3. runProfiles перевести на workspace path
+Вместо:
+
+js
+
+const buildDocxPath = (job) =>
+  path.join(process.cwd(), "storage", "docx", `${job._id}.docx`);
+
+const buildPdfDir = () =>
+  path.join(process.cwd(), "storage", "pdf");
+сделать временно так:
+
+js
+
+const path = require("path");
+const fs = require("fs/promises");
+const {
+  getJobWorkspaceDir,
+  STORAGE_ROOT,
+} = require("../../utils/paths");
+
+const buildWorkspaceDocxPath = (job) =>
+  path.join(getJobWorkspaceDir(job._id), `${job._id}.docx`);
+
+const buildWorkspacePdfDir = (job) =>
+  getJobWorkspaceDir(job._id);
+Потому что pdf может лежать прямо рядом.
+
+Шаг 4. После успешной генерации копировать в storage
+Например:
+
+js
+
+const copyFinalArtifactsToStorage = async (job, workspaceDocxPath, workspacePdfPath) => {
+  const docxStoragePath = path.join(STORAGE_ROOT, "docx", `${job._id}.docx`);
+  const pdfStoragePath = path.join(STORAGE_ROOT, "pdf", `${job._id}.pdf`);
+
+  await fs.copyFile(workspaceDocxPath, docxStoragePath);
+  await fs.copyFile(workspacePdfPath, pdfStoragePath);
+
+  return {
+    docx: `${job._id}.docx`,
+    pdf: `${job._id}.pdf`,
+  };
+};
+Шаг 5. Cleanup расширить
+Кроме удаления storage/... добавить:
+
+js
+
+await fs.rm(getJobWorkspaceDir(job._id), {
+  recursive: true,
+  force: true,
+});
+force: true — хорошо для tmp cleanup.
+
+Почему это безболезненно
+Потому что:
+
+фронт ничего не замечает
+job.files остаётся тем же
+старый download flow не ломается
+cleanup просто становится умнее
+можно откатить в любой момент
+Что важно учесть для Windows
+Ты сейчас, судя по логам, работаешь на Windows:
+
+txt
+
+C:\Users\Александр\Documents\GitHub\armia-doc
+tmpfs как Linux tmpfs на Windows нет в том же виде.
+
+Что это значит:
+На локальной Windows-разработке ты сможешь использовать:
+
+js
+
+os.tmpdir()
+но это будет просто системная temp-директория, не RAM tmpfs.
+
+Реальный tmpfs only будет актуален:
+на Linux сервере
+в Docker/Kubernetes с tmpfs mount
+в WSL/Linux VM
+То есть сейчас можно сделать архитектуру под tmp workspace, а “настоящий tmpfs” включить уже на сервере.
