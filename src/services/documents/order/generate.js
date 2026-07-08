@@ -80,6 +80,14 @@ const buildApprovalTemplateData = require("./buildTemplateDataApproval");
 const { generateSingleTemplate } = require("../shared");
 
 const generateOrderDocument = async (payload, outputPath, profile) => {
+  if (!profile?.orderProfile?.template) {
+    throw new Error("profile.orderProfile.template is required");
+  }
+
+  if (!profile?.approvalProfile?.template) {
+    throw new Error("profile.approvalProfile.template is required");
+  }
+
   const orderData = buildOrderTemplateData(payload);
   const approvalData = buildApprovalTemplateData(payload);
 
@@ -96,7 +104,10 @@ const generateOrderDocument = async (payload, outputPath, profile) => {
     template: profile.approvalProfile.template,
     data: approvalData,
   });
-
+  console.log(
+    "[generateOrderDocument] approval template:",
+    profile.approvalProfile.template,
+  );
   await fs.writeFile(
     outputPath.replace(".docx", "_part_order.docx"),
     orderBuffer,
@@ -106,7 +117,7 @@ const generateOrderDocument = async (payload, outputPath, profile) => {
     approvalBuffer,
   );
 
-  // ВРЕМЕННЫЙ ТЕСТ
+  // TEMP DEBUG: save only approval part
   await fs.writeFile(outputPath, approvalBuffer);
 
   return outputPath;
