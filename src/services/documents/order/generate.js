@@ -75,9 +75,21 @@
 
 // module.exports = generateOrderDocument;
 const fs = require("fs/promises");
+const PizZip = require("pizzip");
 const buildTemplateData = require("./buildTemplateDataOrder");
 const { generateSingleTemplate } = require("../shared");
 const { mergeDocuments } = require("../../word");
+
+const getDocPreview = (buffer, label) => {
+  const zip = new PizZip(buffer);
+  const xml = zip.file("word/document.xml")?.asText() || "";
+
+  console.log(`[${label}] xml length: ${xml.length}`);
+  console.log(`[${label}] contains "Приказ": ${xml.includes("Приказ")}`);
+  console.log(
+    `[${label}] contains "СОГЛАСОВАН": ${xml.includes("СОГЛАСОВАН")}`,
+  );
+};
 
 const generateOrderDocument = async (payload, outputPath, profile) => {
   if (!profile?.orderProfile?.template) {
@@ -104,6 +116,9 @@ const generateOrderDocument = async (payload, outputPath, profile) => {
     data,
   });
 
+  getDocPreview(orderBuffer, "ORDER_BUFFER");
+  getDocPreview(approvalBuffer, "APPROVAL_BUFFER");
+
   await fs.writeFile(
     outputPath.replace(".docx", "_part_order.docx"),
     orderBuffer,
@@ -124,7 +139,6 @@ const generateOrderDocument = async (payload, outputPath, profile) => {
 };
 
 module.exports = generateOrderDocument;
-
 // const fs = require("fs/promises");
 // const buildTemplateData = require("./buildTemplateDataOrder");
 // const { generateSingleTemplate } = require("../shared");
