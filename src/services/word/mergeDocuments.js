@@ -415,17 +415,21 @@ const PAGE_BREAK_XML = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 
 const getDocumentXml = (zip) => {
   const file = zip.file("word/document.xml");
+
   if (!file) {
     throw new Error("DOCX does not contain word/document.xml");
   }
+
   return file.asText();
 };
 
 const extractBody = (xml) => {
   const match = xml.match(BODY_REGEX);
+
   if (!match) {
     throw new Error("Cannot find <w:body> in word/document.xml");
   }
+
   return match[1];
 };
 
@@ -444,21 +448,10 @@ const extractSectionProperties = (body) => {
 };
 
 const mergeDocuments = (buffers, options = {}) => {
-  const { insertPageBreak = true, debug = false } = options;
+  const { insertPageBreak = true } = options;
 
-  if (!Array.isArray(buffers)) {
-    throw new Error("buffers must be an array");
-  }
-
-  if (buffers.length < 2) {
-    throw new Error("Need at least 2 documents to merge");
-  }
-
-  if (debug || process.env.DEBUG_MERGE === "1") {
-    console.log(
-      "[mergeDocuments] input buffer sizes:",
-      buffers.map((buffer) => buffer.length),
-    );
+  if (!Array.isArray(buffers) || buffers.length < 2) {
+    throw new Error("mergeDocuments requires at least 2 DOCX buffers");
   }
 
   const baseZip = new PizZip(buffers[0]);
@@ -468,38 +461,10 @@ const mergeDocuments = (buffers, options = {}) => {
 
   let mergedBody = removeSectionProperties(baseBody);
 
-  if (debug || process.env.DEBUG_MERGE === "1") {
-    console.log("[mergeDocuments] base body length:", baseBody.length);
-    console.log(
-      "[mergeDocuments] base body length without sectPr:",
-      mergedBody.length,
-    );
-    console.log(
-      "[mergeDocuments] base final sectPr exists:",
-      Boolean(finalSectPr),
-    );
-  }
-
   for (let i = 1; i < buffers.length; i++) {
     const zip = new PizZip(buffers[i]);
     const xml = getDocumentXml(zip);
-    const rawBody = extractBody(xml);
-    const body = removeSectionProperties(rawBody);
-
-    if (debug || process.env.DEBUG_MERGE === "1") {
-      console.log(
-        `[mergeDocuments] doc #${i + 1} raw body length:`,
-        rawBody.length,
-      );
-      console.log(
-        `[mergeDocuments] doc #${i + 1} body length without sectPr:`,
-        body.length,
-      );
-      console.log(
-        `[mergeDocuments] doc #${i + 1} has sectPr:`,
-        Boolean(extractSectionProperties(rawBody)),
-      );
-    }
+    const body = removeSectionProperties(extractBody(xml));
 
     if (insertPageBreak) {
       mergedBody += PAGE_BREAK_XML;
@@ -517,17 +482,10 @@ const mergeDocuments = (buffers, options = {}) => {
 
   baseZip.file("word/document.xml", mergedXml);
 
-  const result = baseZip.generate({
+  return baseZip.generate({
     type: "nodebuffer",
     compression: "DEFLATE",
   });
-
-  if (debug || process.env.DEBUG_MERGE === "1") {
-    console.log("[mergeDocuments] result buffer size:", result.length);
-    console.log("[mergeDocuments] merged body length:", mergedBody.length);
-  }
-
-  return result;
 };
 
 module.exports = mergeDocuments;

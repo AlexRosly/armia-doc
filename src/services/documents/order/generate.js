@@ -107,15 +107,13 @@ const generateOrderDocument = async (payload, outputPath, profile) => {
   });
 
   await fs.writeFile(outputPath.replace(".docx", "_order.docx"), orderBuffer);
-
   await fs.writeFile(
     outputPath.replace(".docx", "_approval.docx"),
     approvalBuffer,
   );
 
   const mergedBuffer = mergeDocuments([orderBuffer, approvalBuffer], {
-    insertPageBreak: false,
-    debug: false,
+    insertPageBreak: true,
   });
 
   await fs.writeFile(outputPath, mergedBuffer);
