@@ -78,6 +78,7 @@ const fs = require("fs/promises");
 const buildOrderTemplateData = require("./buildTemplateDataOrder");
 const buildApprovalTemplateData = require("./buildTemplateDataApproval");
 const { generateSingleTemplate } = require("../shared");
+const { mergeDocuments } = require("../../word");
 
 const generateOrderDocument = async (payload, outputPath, profile) => {
   if (!profile?.orderProfile?.template) {
@@ -104,21 +105,20 @@ const generateOrderDocument = async (payload, outputPath, profile) => {
     template: profile.approvalProfile.template,
     data: approvalData,
   });
-  console.log(
-    "[generateOrderDocument] approval template:",
-    profile.approvalProfile.template,
-  );
+
+  await fs.writeFile(outputPath.replace(".docx", "_order.docx"), orderBuffer);
+
   await fs.writeFile(
-    outputPath.replace(".docx", "_part_order.docx"),
-    orderBuffer,
-  );
-  await fs.writeFile(
-    outputPath.replace(".docx", "_part_approval.docx"),
+    outputPath.replace(".docx", "_approval.docx"),
     approvalBuffer,
   );
 
-  // TEMP DEBUG: save only approval part
-  await fs.writeFile(outputPath, approvalBuffer);
+  const mergedBuffer = mergeDocuments([orderBuffer, approvalBuffer], {
+    insertPageBreak: false,
+    debug: false,
+  });
+
+  await fs.writeFile(outputPath, mergedBuffer);
 
   return outputPath;
 };
