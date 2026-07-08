@@ -4,6 +4,7 @@ const buildTemplateDataApproval = (payload) => {
 
   return {
     orderTitle: data.orderDetails?.orderTitle || "",
+
     approvals: (approvalAndVisa.approvals || []).map((item) => ({
       position: item.position || "",
       rank: item.rank || "",
@@ -13,6 +14,7 @@ const buildTemplateDataApproval = (payload) => {
       approvalMonth: item.approvalDate?.month || "___",
       approvalYear: item.approvalDate?.year || "___",
     })),
+
     legalApprovalPosition: approvalAndVisa.legalApproval?.position || "",
     legalApprovalRank: approvalAndVisa.legalApproval?.rank || "",
     legalApprovalFirstName: approvalAndVisa.legalApproval?.firstName || "",
@@ -21,6 +23,7 @@ const buildTemplateDataApproval = (payload) => {
     legalApprovalMonth:
       approvalAndVisa.legalApproval?.approvalDate?.month || "___",
     legalApprovalYear: approvalAndVisa.legalApproval?.approvalDate?.year || "",
+
     orderPreparedByPosition: approvalAndVisa.orderPreparedBy?.position || "",
     orderPreparedByRank: approvalAndVisa.orderPreparedBy?.rank || "",
     orderPreparedByFirstName: approvalAndVisa.orderPreparedBy?.firstName || "",

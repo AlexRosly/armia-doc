@@ -1,5 +1,5 @@
-const { generateSingleTemplate } = require("../shared");
 const buildTemplateData = require("./buildTemplateDataApproval");
+const { generateSingleTemplate } = require("../shared");
 
 const generateApprovalOnlyDocument = async (payload, outputPath, profile) => {
   if (!profile?.template) {

@@ -75,21 +75,10 @@
 
 // module.exports = generateOrderDocument;
 const fs = require("fs/promises");
-const PizZip = require("pizzip");
-const buildTemplateData = require("./buildTemplateDataOrder");
+const buildOrderTemplateData = require("./buildTemplateDataOrder");
+const buildApprovalTemplateData = require("./buildTemplateDataApproval");
 const { generateSingleTemplate } = require("../shared");
 const { mergeDocuments } = require("../../word");
-
-const getDocPreview = (buffer, label) => {
-  const zip = new PizZip(buffer);
-  const xml = zip.file("word/document.xml")?.asText() || "";
-
-  console.log(`[${label}] xml length: ${xml.length}`);
-  console.log(`[${label}] contains "Приказ": ${xml.includes("Приказ")}`);
-  console.log(
-    `[${label}] contains "СОГЛАСОВАН": ${xml.includes("СОГЛАСОВАН")}`,
-  );
-};
 
 const generateOrderDocument = async (payload, outputPath, profile) => {
   if (!profile?.orderProfile?.template) {
@@ -100,37 +89,25 @@ const generateOrderDocument = async (payload, outputPath, profile) => {
     throw new Error("profile.approvalProfile.template is required");
   }
 
-  const data = buildTemplateData(payload);
+  const orderData = buildOrderTemplateData(payload);
+  const approvalData = buildApprovalTemplateData(payload);
 
   const orderBuffer = await generateSingleTemplate({
     documentType: "order",
     templateSubfolder: "order",
     template: profile.orderProfile.template,
-    data,
+    data: orderData,
   });
 
   const approvalBuffer = await generateSingleTemplate({
     documentType: "order",
     templateSubfolder: "approval",
     template: profile.approvalProfile.template,
-    data,
+    data: approvalData,
   });
-
-  getDocPreview(orderBuffer, "ORDER_BUFFER");
-  getDocPreview(approvalBuffer, "APPROVAL_BUFFER");
-
-  await fs.writeFile(
-    outputPath.replace(".docx", "_part_order.docx"),
-    orderBuffer,
-  );
-  await fs.writeFile(
-    outputPath.replace(".docx", "_part_approval.docx"),
-    approvalBuffer,
-  );
 
   const mergedBuffer = mergeDocuments([orderBuffer, approvalBuffer], {
     insertPageBreak: false,
-    debug: true,
   });
 
   await fs.writeFile(outputPath, mergedBuffer);
