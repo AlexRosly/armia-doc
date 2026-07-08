@@ -322,6 +322,92 @@
 // };
 
 // module.exports = mergeDocuments;
+// const PizZip = require("pizzip");
+
+// const BODY_REGEX = /<w:body[^>]*>([\s\S]*?)<\/w:body>/;
+// const PAGE_BREAK_XML = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+
+// const getDocumentXml = (zip) => {
+//   const file = zip.file("word/document.xml");
+
+//   if (!file) {
+//     throw new Error("DOCX does not contain word/document.xml");
+//   }
+
+//   return file.asText();
+// };
+
+// const extractBody = (xml) => {
+//   const match = xml.match(BODY_REGEX);
+
+//   if (!match) {
+//     throw new Error("Cannot find <w:body> in word/document.xml");
+//   }
+
+//   return match[1];
+// };
+
+// const removeSectionProperties = (body) => {
+//   return body
+//     .replace(/<w:sectPr[\s\S]*?<\/w:sectPr>/g, "")
+//     .replace(/<w:sectPr[^>]*\/>/g, "");
+// };
+
+// const extractSectionProperties = (body) => {
+//   const fullMatch = body.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/);
+//   if (fullMatch) return fullMatch[0];
+
+//   const selfClosingMatch = body.match(/<w:sectPr[^>]*\/>/);
+//   return selfClosingMatch ? selfClosingMatch[0] : "";
+// };
+
+// const mergeDocuments = (buffers) => {
+//   if (!Array.isArray(buffers)) {
+//     throw new Error("buffers must be an array");
+//   }
+
+//   if (buffers.length < 2) {
+//     throw new Error("Need at least 2 documents to merge");
+//   }
+
+//   const baseZip = new PizZip(buffers[0]);
+//   const baseXml = getDocumentXml(baseZip);
+//   const baseBody = extractBody(baseXml);
+
+//   const finalSectPr = extractSectionProperties(baseBody);
+//   let mergedBody = removeSectionProperties(baseBody);
+
+//   for (let i = 1; i < buffers.length; i++) {
+//     const zip = new PizZip(buffers[i]);
+//     const xml = getDocumentXml(zip);
+//     const body = removeSectionProperties(extractBody(xml));
+
+//     mergedBody += PAGE_BREAK_XML;
+//     mergedBody += body;
+//   }
+
+//   mergedBody += finalSectPr;
+
+//   const mergedXml = baseXml.replace(
+//     BODY_REGEX,
+//     `<w:body>${mergedBody}</w:body>`,
+//   );
+
+//   baseZip.file("word/document.xml", mergedXml);
+
+//   if (process.env.DEBUG_MERGE === "1") {
+//     console.log(
+//       "[mergeDocuments] buffer sizes:",
+//       buffers.map((buffer) => buffer.length),
+//     );
+//   }
+//   return baseZip.generate({
+//     type: "nodebuffer",
+//     compression: "DEFLATE",
+//   });
+// };
+
+// module.exports = mergeDocuments;
 const PizZip = require("pizzip");
 
 const BODY_REGEX = /<w:body[^>]*>([\s\S]*?)<\/w:body>/;
@@ -329,21 +415,17 @@ const PAGE_BREAK_XML = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 
 const getDocumentXml = (zip) => {
   const file = zip.file("word/document.xml");
-
   if (!file) {
     throw new Error("DOCX does not contain word/document.xml");
   }
-
   return file.asText();
 };
 
 const extractBody = (xml) => {
   const match = xml.match(BODY_REGEX);
-
   if (!match) {
     throw new Error("Cannot find <w:body> in word/document.xml");
   }
-
   return match[1];
 };
 
@@ -361,7 +443,9 @@ const extractSectionProperties = (body) => {
   return selfClosingMatch ? selfClosingMatch[0] : "";
 };
 
-const mergeDocuments = (buffers) => {
+const mergeDocuments = (buffers, options = {}) => {
+  const { insertPageBreak = true, debug = false } = options;
+
   if (!Array.isArray(buffers)) {
     throw new Error("buffers must be an array");
   }
@@ -370,19 +454,57 @@ const mergeDocuments = (buffers) => {
     throw new Error("Need at least 2 documents to merge");
   }
 
+  if (debug || process.env.DEBUG_MERGE === "1") {
+    console.log(
+      "[mergeDocuments] input buffer sizes:",
+      buffers.map((buffer) => buffer.length),
+    );
+  }
+
   const baseZip = new PizZip(buffers[0]);
   const baseXml = getDocumentXml(baseZip);
   const baseBody = extractBody(baseXml);
-
   const finalSectPr = extractSectionProperties(baseBody);
+
   let mergedBody = removeSectionProperties(baseBody);
+
+  if (debug || process.env.DEBUG_MERGE === "1") {
+    console.log("[mergeDocuments] base body length:", baseBody.length);
+    console.log(
+      "[mergeDocuments] base body length without sectPr:",
+      mergedBody.length,
+    );
+    console.log(
+      "[mergeDocuments] base final sectPr exists:",
+      Boolean(finalSectPr),
+    );
+  }
 
   for (let i = 1; i < buffers.length; i++) {
     const zip = new PizZip(buffers[i]);
     const xml = getDocumentXml(zip);
-    const body = removeSectionProperties(extractBody(xml));
+    const rawBody = extractBody(xml);
+    const body = removeSectionProperties(rawBody);
 
-    mergedBody += PAGE_BREAK_XML;
+    if (debug || process.env.DEBUG_MERGE === "1") {
+      console.log(
+        `[mergeDocuments] doc #${i + 1} raw body length:`,
+        rawBody.length,
+      );
+      console.log(
+        `[mergeDocuments] doc #${i + 1} body length without sectPr:`,
+        body.length,
+      );
+      console.log(
+        `[mergeDocuments] doc #${i + 1} has sectPr:`,
+        Boolean(extractSectionProperties(rawBody)),
+      );
+    }
+
+    if (insertPageBreak) {
+      mergedBody += PAGE_BREAK_XML;
+    }
+
     mergedBody += body;
   }
 
@@ -395,16 +517,17 @@ const mergeDocuments = (buffers) => {
 
   baseZip.file("word/document.xml", mergedXml);
 
-  if (process.env.DEBUG_MERGE === "1") {
-    console.log(
-      "[mergeDocuments] buffer sizes:",
-      buffers.map((buffer) => buffer.length),
-    );
-  }
-  return baseZip.generate({
+  const result = baseZip.generate({
     type: "nodebuffer",
     compression: "DEFLATE",
   });
+
+  if (debug || process.env.DEBUG_MERGE === "1") {
+    console.log("[mergeDocuments] result buffer size:", result.length);
+    console.log("[mergeDocuments] merged body length:", mergedBody.length);
+  }
+
+  return result;
 };
 
 module.exports = mergeDocuments;
