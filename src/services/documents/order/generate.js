@@ -78,17 +78,8 @@ const fs = require("fs/promises");
 const buildOrderTemplateData = require("./buildTemplateDataOrder");
 const buildApprovalTemplateData = require("./buildTemplateDataApproval");
 const { generateSingleTemplate } = require("../shared");
-const { mergeDocuments } = require("../../word");
 
 const generateOrderDocument = async (payload, outputPath, profile) => {
-  if (!profile?.orderProfile?.template) {
-    throw new Error("profile.orderProfile.template is required");
-  }
-
-  if (!profile?.approvalProfile?.template) {
-    throw new Error("profile.approvalProfile.template is required");
-  }
-
   const orderData = buildOrderTemplateData(payload);
   const approvalData = buildApprovalTemplateData(payload);
 
@@ -106,11 +97,17 @@ const generateOrderDocument = async (payload, outputPath, profile) => {
     data: approvalData,
   });
 
-  const mergedBuffer = mergeDocuments([orderBuffer, approvalBuffer], {
-    insertPageBreak: false,
-  });
+  await fs.writeFile(
+    outputPath.replace(".docx", "_part_order.docx"),
+    orderBuffer,
+  );
+  await fs.writeFile(
+    outputPath.replace(".docx", "_part_approval.docx"),
+    approvalBuffer,
+  );
 
-  await fs.writeFile(outputPath, mergedBuffer);
+  // ВРЕМЕННЫЙ ТЕСТ
+  await fs.writeFile(outputPath, approvalBuffer);
 
   return outputPath;
 };
