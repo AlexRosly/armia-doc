@@ -165,7 +165,7 @@ const path = require("path");
 const fs = require("fs/promises");
 const { generateArmdoc } = require("../armdoc");
 const { runProfiles } = require("../layout");
-const runOrderGeneration = require("../layout/runOrderGeneration");
+const { runOrderGeneration, runActGeneration } = require("../layout");
 const { convertToPdf } = require("../pdf");
 const { GenerationJob } = require("../../models");
 
@@ -197,6 +197,8 @@ const runGenerationJob = async (report, job) => {
         path.join(process.cwd(), "storage", "docx", `${job._id}.docx`),
         path.join(process.cwd(), "storage", "pdf"),
       );
+    } else if (report.documentType === "act") {
+      layoutResult = await runActGeneration(report, job);
     } else {
       layoutResult = await runProfiles(report, job);
     }
@@ -209,7 +211,11 @@ const runGenerationJob = async (report, job) => {
             orderProfile: layoutResult.profile.orderProfile,
             approvalProfile: layoutResult.profile.approvalProfile,
           }
-        : layoutResult;
+        : layoutResult.layoutCheck || {
+            status: layoutResult.status,
+            profile: layoutResult.profile || null,
+            printSettings: report.printSettings || {},
+          };
 
     //
     // VERIFY FILES

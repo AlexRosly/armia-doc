@@ -3,6 +3,7 @@ const GenerationJob = require("./generationJob");
 const documentModels = require("./documentModels");
 const OrderDocument = require("./orderDocument");
 const ActDocument = require("./actDocument");
+const ActProfileCache = require("./actProfileCache");
 
 module.exports = {
   ReportDocument,
@@ -10,4 +11,5 @@ module.exports = {
   documentModels,
   OrderDocument,
   ActDocument,
+  ActProfileCache,
 };
