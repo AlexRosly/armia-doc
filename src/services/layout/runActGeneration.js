@@ -4,11 +4,16 @@ const path = require("path");
 const convertToPdf = require("../pdf/convertToPdf");
 const validateLayout = require("./validateLayout");
 
-const generateActDocument = require("../documents/act/generate");
-const resolveActLayoutProfile = require("../documents/act/resolveActLayoutProfile");
-const iterateActProfiles = require("../documents/act/iterateActProfiles");
-const getCachedActProfile = require("../documents/act/getCachedActProfile");
-const saveCachedActProfile = require("../documents/act/saveCachedActProfile");
+const {
+  generateActDocument,
+  resolveActLayoutProfile,
+} = require("../documents/act");
+const actProfiles = require("../documents/act/profiles");
+
+const DEBUG_ACT_LAYOUT = process.env.ACT_LAYOUT_DEBUG === "1";
+const MAX_CHECKED_PROFILES = Number(
+  process.env.ACT_MAX_CHECKED_PROFILES || 1000,
+);
 
 const buildPayload = (report) => ({
   ...report.toObject(),
@@ -43,7 +48,7 @@ const cleanupFileIfExists = async (filePath) => {
   try {
     await fs.unlink(filePath);
   } catch (error) {
-    if (error.code !== "ENOENT") {
+    if (error.code !== "ENOENT" && DEBUG_ACT_LAYOUT) {
       console.warn(`[runActGeneration] cleanup failed: ${filePath}`);
       console.warn(error.message);
     }
@@ -56,35 +61,18 @@ const cleanupArtifacts = async (paths) => {
   }
 };
 
-const sameProfile = (a, b) =>
-  !!a &&
-  !!b &&
-  a.layoutProfile === b.layoutProfile &&
-  a.approvalAreaLineSpacing === b.approvalAreaLineSpacing &&
-  a.documentTitleSpacingBeforePt === b.documentTitleSpacingBeforePt &&
-  a.verticalSpacingBeforePt === b.verticalSpacingBeforePt &&
-  a.mainTextPt === b.mainTextPt &&
-  a.mainLineSpacing === b.mainLineSpacing &&
-  a.tableTextPt === b.tableTextPt &&
-  a.signatureBlockPt === b.signatureBlockPt &&
-  a.signatureHintPt === b.signatureHintPt &&
-  a.staticHeaderPt === b.staticHeaderPt &&
-  a.tableLineSpacing === b.tableLineSpacing &&
-  a.headingsKeepWithNext === b.headingsKeepWithNext &&
-  a.signatureBlockKeepTogether === b.signatureBlockKeepTogether;
-
 const isFatalGenerationError = (error) => {
   const message = error?.message || "";
 
   return (
     error?.code === "ENOENT" ||
     message.includes("no such file or directory") ||
-    message.includes("DOCX does not contain") ||
-    message.includes("Unknown act layoutProfile") ||
     message.includes("payload.templateType is required") ||
     message.includes("generateSingleDocument is not defined") ||
     message.includes("generateSingleDocument is not a function") ||
-    message.includes("path is not defined")
+    message.includes("path is not defined") ||
+    message.includes("Act profile.template is required") ||
+    message.includes("Unknown act layoutProfile")
   );
 };
 
@@ -111,21 +99,45 @@ const evaluateCandidate = async ({
     await generateActDocument(payload, docxPath, profile);
     await convertToPdf(docxPath, pdfDir);
 
-    const pages = await validateLayout(pdfPath);
-    const hasLayoutError = pages.some((page) => page.status === "below_min");
+    let pages = [];
+
+    try {
+      pages = await validateLayout(pdfPath);
+    } catch (validationError) {
+      if (DEBUG_ACT_LAYOUT) {
+        console.warn(
+          `[runActGeneration] validateLayout failed for ${profileName}`,
+        );
+        console.warn(validationError.message);
+      }
+    }
+
+    if (DEBUG_ACT_LAYOUT && pages.length > 0) {
+      console.log(
+        `[runActGeneration] layout result: ${profileName} => ${JSON.stringify(
+          pages.map((p) => ({
+            pageNumber: p.pageNumber,
+            status: p.status,
+            actualBottomMarginCm: p.actualBottomMarginCm,
+            deviationCm: p.deviationCm,
+          })),
+        )}`,
+      );
+    }
 
     return {
       ok: true,
       profileName,
       profile,
       pages,
-      hasLayoutError,
       docxPath,
       pdfPath,
     };
   } catch (error) {
-    console.error(`[runActGeneration] candidate failed: ${profileName}`);
-    console.error(error.message);
+    if (DEBUG_ACT_LAYOUT) {
+      console.warn(`[runActGeneration] candidate failed: ${profileName}`);
+      console.warn(error.message);
+    }
 
     if (isFatalGenerationError(error)) {
       throw error;
@@ -136,7 +148,6 @@ const evaluateCandidate = async ({
       profileName,
       profile,
       pages: [],
-      hasLayoutError: true,
       error: error.message,
       docxPath,
       pdfPath,
@@ -144,87 +155,52 @@ const evaluateCandidate = async ({
   }
 };
 
+const finalizeResult = async ({
+  sourceDocxPath,
+  finalDocxPath,
+  finalPdfPath,
+  pdfDir,
+}) => {
+  await ensureParentDir(finalDocxPath);
+  await ensureParentDir(finalPdfPath);
+
+  await cleanupFileIfExists(finalDocxPath);
+  await cleanupFileIfExists(finalPdfPath);
+
+  await fs.copyFile(sourceDocxPath, finalDocxPath);
+  await convertToPdf(finalDocxPath, pdfDir);
+};
+
 const runActGeneration = async (report, job) => {
   const payload = buildPayload(report);
   const layoutProfile = resolveActLayoutProfile(payload);
+  const profiles = actProfiles[layoutProfile];
   const pdfDir = buildPdfDir();
   const finalDocxPath = buildFinalDocxPath(job);
   const finalPdfPath = buildFinalPdfPath(job);
 
   const tempArtifacts = new Set();
 
+  if (!profiles || profiles.length === 0) {
+    throw new Error(`Unknown act layoutProfile: ${layoutProfile}`);
+  }
+
   console.log(
-    `[runActGeneration] selecting act profile, layoutProfile=${layoutProfile}`,
+    `[runActGeneration] selecting act template list, layoutProfile=${layoutProfile}, total=${profiles.length}`,
   );
 
-  let bestResult = null;
-  const cachedProfile = await getCachedActProfile(payload, layoutProfile);
-
   try {
-    if (cachedProfile) {
-      console.log("[runActGeneration] trying cached profile");
-
-      const cachedDocxPath = buildCandidateDocxPath(job, 0);
-
-      const cachedResult = await evaluateCandidate({
-        payload,
-        docxPath: cachedDocxPath,
-        pdfDir,
-        profile: cachedProfile,
-        profileName: cachedProfile.name || "cached_profile",
-        tempArtifacts,
-      });
-
-      if (cachedResult.ok) {
-        if (!cachedResult.hasLayoutError) {
-          console.log(
-            `[runActGeneration] cached profile passed: ${cachedResult.profileName}`,
-          );
-
-          await ensureParentDir(finalDocxPath);
-          await ensureParentDir(finalPdfPath);
-
-          await cleanupFileIfExists(finalDocxPath);
-          await cleanupFileIfExists(finalPdfPath);
-
-          await fs.copyFile(cachedResult.docxPath, finalDocxPath);
-          await convertToPdf(finalDocxPath, pdfDir);
-
-          return {
-            status: "passed",
-            profile: cachedResult.profileName,
-            layoutCheck: {
-              status: "passed",
-              profile: cachedResult.profileName,
-              pages: cachedResult.pages,
-            },
-            resolvedProfile: cachedResult.profile,
-            outputPath: finalDocxPath,
-          };
-        }
-
-        bestResult = {
-          status: "best_effort",
-          profileName: cachedResult.profileName,
-          profile: cachedResult.profile,
-          pages: cachedResult.pages,
-          docxPath: cachedResult.docxPath,
-        };
-
-        console.warn(
-          `[runActGeneration] cached profile only best_effort: ${cachedResult.profileName}`,
-        );
-      }
-    }
-
     let checkedCount = 0;
 
-    for (const profile of iterateActProfiles(layoutProfile)) {
-      if (sameProfile(profile, cachedProfile)) {
-        continue;
-      }
-
+    for (const profile of profiles) {
       checkedCount += 1;
+
+      if (checkedCount > MAX_CHECKED_PROFILES) {
+        console.warn(
+          `[runActGeneration] reached profile limit ${MAX_CHECKED_PROFILES}, stopping search`,
+        );
+        break;
+      }
 
       if (checkedCount % 25 === 0) {
         console.log(
@@ -247,74 +223,31 @@ const runActGeneration = async (report, job) => {
         continue;
       }
 
-      if (!result.hasLayoutError) {
-        console.log(
-          `[runActGeneration] act passed with profile=${result.profileName}`,
-        );
-
-        await saveCachedActProfile(payload, layoutProfile, profile);
-
-        await ensureParentDir(finalDocxPath);
-        await ensureParentDir(finalPdfPath);
-
-        await cleanupFileIfExists(finalDocxPath);
-        await cleanupFileIfExists(finalPdfPath);
-
-        await fs.copyFile(result.docxPath, finalDocxPath);
-        await convertToPdf(finalDocxPath, pdfDir);
-
-        return {
-          status: "passed",
-          profile: result.profileName,
-          layoutCheck: {
-            status: "passed",
-            profile: result.profileName,
-            pages: result.pages,
-          },
-          resolvedProfile: profile,
-          outputPath: finalDocxPath,
-        };
-      }
-
-      if (!bestResult) {
-        bestResult = {
-          status: "best_effort",
-          profileName: result.profileName,
-          profile: result.profile,
-          pages: result.pages,
-          docxPath: result.docxPath,
-        };
-      }
-    }
-
-    if (bestResult) {
-      console.warn(
-        `[runActGeneration] fallback to best_effort profile=${bestResult.profileName}`,
+      console.log(
+        `[runActGeneration] act passed with profile=${result.profileName}, checked=${checkedCount}`,
       );
 
-      await ensureParentDir(finalDocxPath);
-      await ensureParentDir(finalPdfPath);
-
-      await cleanupFileIfExists(finalDocxPath);
-      await cleanupFileIfExists(finalPdfPath);
-
-      await fs.copyFile(bestResult.docxPath, finalDocxPath);
-      await convertToPdf(finalDocxPath, pdfDir);
+      await finalizeResult({
+        sourceDocxPath: result.docxPath,
+        finalDocxPath,
+        finalPdfPath,
+        pdfDir,
+      });
 
       return {
-        status: "best_effort",
-        profile: bestResult.profileName,
+        status: "passed",
+        profile: result.profileName,
         layoutCheck: {
-          status: "best_effort",
-          profile: bestResult.profileName,
-          pages: bestResult.pages,
+          status: "passed",
+          profile: result.profileName,
+          pages: result.pages,
         },
-        resolvedProfile: bestResult.profile,
+        resolvedProfile: result.profile,
         outputPath: finalDocxPath,
       };
     }
 
-    throw new Error("No valid act profile could be generated");
+    throw new Error("No valid act template could be generated");
   } finally {
     tempArtifacts.delete(finalDocxPath);
     tempArtifacts.delete(finalPdfPath);
@@ -323,498 +256,3 @@ const runActGeneration = async (report, job) => {
 };
 
 module.exports = runActGeneration;
-// const fs = require("fs/promises");
-// const path = require("path");
-
-// const { convertToPdf } = require("../pdf");
-// const validateLayout = require("./validateLayout");
-
-// const {
-//   generateActDocument,
-//   resolveActLayoutProfile,
-//   iterateActProfiles,
-//   getCachedActProfile,
-//   saveCachedActProfile,
-// } = require("../documents/act");
-
-// const buildPayload = (report) => ({
-//   ...report.toObject(),
-//   documentType: report.documentType,
-//   templateType: report.templateType,
-// });
-
-// const buildDocxPath = (job) =>
-//   path.join(process.cwd(), "storage", "docx", `${job._id}.docx`);
-
-// // const buildFinalDocxPath = (job) =>
-// //   path.join(process.cwd(), "storage", "docx", `${job._id}.docx`);
-
-// const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
-
-// const buildPdfPath = (docxPath, pdfDir) =>
-//   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
-
-// const ensureParentDir = async (filePath) => {
-//   await fs.mkdir(path.dirname(filePath), { recursive: true });
-// };
-
-// const sameProfile = (a, b) =>
-//   !!a &&
-//   !!b &&
-//   a.layoutProfile === b.layoutProfile &&
-//   a.approvalAreaLineSpacing === b.approvalAreaLineSpacing &&
-//   a.documentTitleSpacingBeforePt === b.documentTitleSpacingBeforePt &&
-//   a.verticalSpacingBeforePt === b.verticalSpacingBeforePt &&
-//   a.mainTextPt === b.mainTextPt &&
-//   a.mainLineSpacing === b.mainLineSpacing &&
-//   a.tableTextPt === b.tableTextPt;
-
-// const isFatalGenerationError = (error) => {
-//   const message = error?.message || "";
-
-//   return (
-//     error?.code === "ENOENT" ||
-//     message.includes("no such file or directory") ||
-//     message.includes("DOCX does not contain") ||
-//     message.includes("Unknown act layoutProfile") ||
-//     message.includes("payload.templateType is required") ||
-//     message.includes("generateSingleDocument is not defined") ||
-//     message.includes("path is not defined")
-//   );
-// };
-
-// const evaluateCandidate = async ({
-//   payload,
-//   docxPath,
-//   pdfDir,
-//   profile,
-//   profileName,
-// }) => {
-//   try {
-//     await ensureParentDir(docxPath);
-
-//     await generateActDocument(payload, docxPath, profile);
-//     await convertToPdf(docxPath, pdfDir);
-
-//     const pdfPath = buildPdfPath(docxPath, pdfDir);
-//     const pages = await validateLayout(pdfPath);
-//     const hasLayoutError = pages.some((page) => page.status === "below_min");
-
-//     return {
-//       ok: true,
-//       profileName,
-//       profile,
-//       pages,
-//       hasLayoutError,
-//     };
-//   } catch (error) {
-//     console.error(`[runActGeneration] candidate failed: ${profileName}`);
-//     console.error(error.message);
-
-//     if (isFatalGenerationError(error)) {
-//       throw error;
-//     }
-
-//     return {
-//       ok: false,
-//       profileName,
-//       profile,
-//       pages: [],
-//       hasLayoutError: true,
-//       error: error.message,
-//     };
-//   }
-// };
-
-// const runActGeneration = async (report, job) => {
-//   const payload = buildPayload(report);
-//   const layoutProfile = resolveActLayoutProfile(payload);
-
-//   const candidateDocxPath = buildDocxPath(job, "act");
-//   const finalDocxPath = buildDocxPath(job);
-//   const pdfDir = buildPdfDir();
-
-//   console.log(
-//     `[runActGeneration] selecting act profile, layoutProfile=${layoutProfile}`,
-//   );
-
-//   let bestResult = null;
-
-//   const cachedProfile = await getCachedActProfile(payload, layoutProfile);
-
-//   if (cachedProfile) {
-//     console.log("[runActGeneration] trying cached profile");
-
-//     const cachedResult = await evaluateCandidate({
-//       payload,
-//       docxPath: candidateDocxPath,
-//       pdfDir,
-//       profile: cachedProfile,
-//       profileName: cachedProfile.name || "cached_profile",
-//     });
-
-//     if (cachedResult.ok) {
-//       if (!cachedResult.hasLayoutError) {
-//         console.log(
-//           `[runActGeneration] cached profile passed: ${cachedResult.profileName}`,
-//         );
-
-//         await fs.copyFile(candidateDocxPath, finalDocxPath);
-//         await convertToPdf(finalDocxPath, pdfDir);
-
-//         return {
-//           status: "passed",
-//           profile: cachedResult.profileName,
-//           layoutCheck: {
-//             status: "passed",
-//             profile: cachedResult.profileName,
-//             pages: cachedResult.pages,
-//           },
-//           resolvedProfile: cachedResult.profile,
-//           outputPath: finalDocxPath,
-//         };
-//       }
-
-//       bestResult = {
-//         status: "best_effort",
-//         profileName: cachedResult.profileName,
-//         profile: cachedResult.profile,
-//         pages: cachedResult.pages,
-//       };
-
-//       console.warn(
-//         `[runActGeneration] cached profile only best_effort: ${cachedResult.profileName}`,
-//       );
-//     }
-//   }
-
-//   let checkedCount = 0;
-
-//   for (const profile of iterateActProfiles(layoutProfile)) {
-//     if (sameProfile(profile, cachedProfile)) {
-//       continue;
-//     }
-
-//     checkedCount += 1;
-
-//     if (checkedCount % 25 === 0) {
-//       console.log(
-//         `[runActGeneration] checked=${checkedCount}, currentProfile=${profile.name}`,
-//       );
-//     }
-
-//     const result = await evaluateCandidate({
-//       payload,
-//       docxPath: candidateDocxPath,
-//       pdfDir,
-//       profile,
-//       profileName: profile.name,
-//     });
-
-//     if (!result.ok) {
-//       continue;
-//     }
-
-//     if (!result.hasLayoutError) {
-//       console.log(
-//         `[runActGeneration] act passed with profile=${result.profileName}`,
-//       );
-
-//       await saveCachedActProfile(payload, layoutProfile, profile);
-//       // await fs.copyFile(candidateDocxPath, finalDocxPath);
-//       await convertToPdf(finalDocxPath, pdfDir);
-
-//       return {
-//         status: "passed",
-//         profile: result.profileName,
-//         layoutCheck: {
-//           status: "passed",
-//           profile: result.profileName,
-//           pages: result.pages,
-//         },
-//         resolvedProfile: profile,
-//         outputPath: finalDocxPath,
-//       };
-//     }
-
-//     if (!bestResult) {
-//       bestResult = {
-//         status: "best_effort",
-//         profileName: result.profileName,
-//         profile: result.profile,
-//         pages: result.pages,
-//       };
-//     }
-//   }
-
-//   if (bestResult) {
-//     console.warn(
-//       `[runActGeneration] fallback to best_effort profile=${bestResult.profileName}`,
-//     );
-
-//     await fs.copyFile(candidateDocxPath, finalDocxPath);
-//     await convertToPdf(finalDocxPath, pdfDir);
-
-//     return {
-//       status: "best_effort",
-//       profile: bestResult.profileName,
-//       layoutCheck: {
-//         status: "best_effort",
-//         profile: bestResult.profileName,
-//         pages: bestResult.pages,
-//       },
-//       resolvedProfile: bestResult.profile,
-//       outputPath: finalDocxPath,
-//     };
-//   }
-
-//   throw new Error("No valid act profile could be generated");
-// };
-
-// module.exports = runActGeneration;
-// // const fs = require("fs/promises");
-// // const path = require("path");
-
-// // const { convertToPdf } = require("../pdf");
-// // const validateLayout = require("./validateLayout");
-
-// // const {
-// //   generateActDocument,
-// //   resolveActLayoutProfile,
-// //   iterateActProfiles,
-// //   getCachedActProfile,
-// //   saveCachedActProfile,
-// // } = require("../documents/act");
-
-// // const buildPayload = (report) => ({
-// //   ...report.toObject(),
-// //   documentType: report.documentType,
-// //   templateType: report.templateType,
-// // });
-
-// // const buildDocxPath = (job, suffix = "act") =>
-// //   path.join(process.cwd(), "storage", "docx", `${job._id}_${suffix}.docx`);
-
-// // const buildFinalDocxPath = (job) =>
-// //   path.join(process.cwd(), "storage", "docx", `${job._id}.docx`);
-
-// // const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
-
-// // const buildPdfPath = (docxPath, pdfDir) =>
-// //   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
-
-// // const ensureParentDir = async (filePath) => {
-// //   await fs.mkdir(path.dirname(filePath), { recursive: true });
-// // };
-
-// // const sameProfile = (a, b) =>
-// //   !!a &&
-// //   !!b &&
-// //   a.layoutProfile === b.layoutProfile &&
-// //   a.approvalAreaLineSpacing === b.approvalAreaLineSpacing &&
-// //   a.documentTitleSpacingBeforePt === b.documentTitleSpacingBeforePt &&
-// //   a.verticalSpacingBeforePt === b.verticalSpacingBeforePt &&
-// //   a.mainTextPt === b.mainTextPt &&
-// //   a.mainLineSpacing === b.mainLineSpacing &&
-// //   a.tableTextPt === b.tableTextPt;
-
-// // const evaluateCandidate = async ({
-// //   payload,
-// //   docxPath,
-// //   pdfDir,
-// //   profile,
-// //   profileName,
-// // }) => {
-// //   try {
-// //     await ensureParentDir(docxPath);
-
-// //     await generateActDocument(payload, docxPath, profile);
-// //     await convertToPdf(docxPath, pdfDir);
-
-// //     const pdfPath = buildPdfPath(docxPath, pdfDir);
-// //     const pages = await validateLayout(pdfPath);
-// //     const hasLayoutError = pages.some((page) => page.status === "below_min");
-
-// //     return {
-// //       ok: true,
-// //       profileName,
-// //       profile,
-// //       pages,
-// //       hasLayoutError,
-// //     };
-// //   } catch (error) {
-// //     console.error(`[runActGeneration] candidate failed: ${profileName}`);
-// //     console.error(error.message);
-
-// //     if (isFatalGenerationError(error)) {
-// //       throw error;
-// //     }
-
-// //     return {
-// //       ok: false,
-// //       profileName,
-// //       profile,
-// //       pages: [],
-// //       hasLayoutError: true,
-// //       error: error.message,
-// //     };
-// //   }
-// // };
-
-// // const runActGeneration = async (report, job) => {
-// //   const payload = buildPayload(report);
-// //   const layoutProfile = resolveActLayoutProfile(payload);
-
-// //   const candidateDocxPath = buildDocxPath(job, "act");
-// //   const finalDocxPath = buildFinalDocxPath(job);
-// //   const pdfDir = buildPdfDir();
-
-// //   console.log(
-// //     `[runActGeneration] selecting act profile, layoutProfile=${layoutProfile}`,
-// //   );
-
-// //   let bestResult = null;
-
-// //   // const isFatalGenerationError = (error) => {
-// //   //   const message = error?.message || "";
-
-// //   //   return (
-// //   //     error?.code === "ENOENT" ||
-// //   //     message.includes("no such file or directory") ||
-// //   //     message.includes("DOCX does not contain") ||
-// //   //     message.includes("Unknown act layoutProfile")
-// //   //   );
-// //   // };
-
-// //   // 1. Пытаемся cached profile
-// //   const cachedProfile = await getCachedActProfile(payload, layoutProfile);
-
-// //   if (cachedProfile) {
-// //     console.log("[runActGeneration] trying cached profile");
-
-// //     const cachedResult = await evaluateCandidate({
-// //       payload,
-// //       docxPath: candidateDocxPath,
-// //       pdfDir,
-// //       profile: cachedProfile,
-// //       profileName: cachedProfile.name || "cached_profile",
-// //     });
-
-// //     if (cachedResult.ok) {
-// //       if (!cachedResult.hasLayoutError) {
-// //         console.log(
-// //           `[runActGeneration] cached profile passed: ${cachedResult.profileName}`,
-// //         );
-
-// //         await fs.copyFile(candidateDocxPath, finalDocxPath);
-
-// //         return {
-// //           status: "passed",
-// //           profile: cachedResult.profileName,
-// //           layoutCheck: {
-// //             status: "passed",
-// //             profile: cachedResult.profileName,
-// //             pages: cachedResult.pages,
-// //           },
-// //           resolvedProfile: cachedResult.profile,
-// //           outputPath: finalDocxPath,
-// //         };
-// //       }
-
-// //       bestResult = {
-// //         status: "best_effort",
-// //         profileName: cachedResult.profileName,
-// //         profile: cachedResult.profile,
-// //         pages: cachedResult.pages,
-// //       };
-
-// //       console.warn(
-// //         `[runActGeneration] cached profile only best_effort: ${cachedResult.profileName}`,
-// //       );
-// //     }
-// //   }
-
-// //   // 2. Полный ordered search по ТЗ
-// //   let checkedCount = 0;
-
-// //   for (const profile of iterateActProfiles(layoutProfile)) {
-// //     if (sameProfile(profile, cachedProfile)) {
-// //       continue;
-// //     }
-
-// //     checkedCount += 1;
-
-// //     if (checkedCount % 25 === 0) {
-// //       console.log(
-// //         `[runActGeneration] checked=${checkedCount}, currentProfile=${profile.name}`,
-// //       );
-// //     }
-
-// //     const result = await evaluateCandidate({
-// //       payload,
-// //       docxPath: candidateDocxPath,
-// //       pdfDir,
-// //       profile,
-// //       profileName: profile.name,
-// //     });
-
-// //     if (!result.ok) {
-// //       continue;
-// //     }
-
-// //     if (!result.hasLayoutError) {
-// //       console.log(
-// //         `[runActGeneration] act passed with profile=${result.profileName}`,
-// //       );
-
-// //       await saveCachedActProfile(payload, layoutProfile, profile);
-// //       await fs.copyFile(candidateDocxPath, finalDocxPath);
-
-// //       return {
-// //         status: "passed",
-// //         profile: result.profileName,
-// //         layoutCheck: {
-// //           status: "passed",
-// //           profile: result.profileName,
-// //           pages: result.pages,
-// //         },
-// //         resolvedProfile: profile,
-// //         outputPath: finalDocxPath,
-// //       };
-// //     }
-
-// //     if (!bestResult) {
-// //       bestResult = {
-// //         status: "best_effort",
-// //         profileName: result.profileName,
-// //         profile: result.profile,
-// //         pages: result.pages,
-// //       };
-// //     }
-// //   }
-
-// //   if (bestResult) {
-// //     console.warn(
-// //       `[runActGeneration] fallback to best_effort profile=${bestResult.profileName}`,
-// //     );
-
-// //     await fs.copyFile(candidateDocxPath, finalDocxPath);
-// //     await convertToPdf(finalDocxPath, pdfDir);
-
-// //     return {
-// //       status: "best_effort",
-// //       profile: bestResult.profileName,
-// //       layoutCheck: {
-// //         status: "best_effort",
-// //         profile: bestResult.profileName,
-// //         pages: bestResult.pages,
-// //       },
-// //       resolvedProfile: bestResult.profile,
-// //       outputPath: finalDocxPath,
-// //     };
-// //   }
-
-// //   throw new Error("No valid act profile could be generated");
-// // };
-
-// // module.exports = runActGeneration;

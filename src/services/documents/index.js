@@ -9,20 +9,3 @@ module.exports = {
   act,
   shared,
 };
-
-// module.exports = documentBuilders;
-// const buildTemplateDataReport = require("./report/buildTemplateDataReport");
-
-// module.exports = {
-//   report: {
-//     buildTemplateData: buildTemplateDataReport,
-//   },
-
-// order: {
-//   buildTemplateData: require("./order/buildTemplateData"),
-// },
-
-// writeOffAct: {
-//   buildTemplateData: require("./writeOffAct/buildTemplateData"),
-// },
-// };

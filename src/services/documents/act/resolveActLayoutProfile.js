@@ -1,17 +1,22 @@
-const actMasters = require("./actMasters");
+const ALLOWED_LAYOUT_PROFILES = new Set([
+  "ACT_LANDSCAPE_V1",
+  "ACT_LANDSCAPE_V2",
+]);
 
-const resolveActLayoutProfile = (payload) => {
-  const layoutProfile = payload?.templateType;
+const resolveActLayoutProfile = (payload = {}) => {
+  const candidate = payload.layoutProfile || payload.templateType;
 
-  if (!layoutProfile) {
-    throw new Error("payload.templateType is required for act generation");
+  if (!candidate) {
+    throw new Error(
+      "Act payload.layoutProfile or payload.templateType is required",
+    );
   }
 
-  if (!actMasters[layoutProfile]) {
-    throw new Error(`Unknown act templateType/layoutProfile: ${layoutProfile}`);
+  if (!ALLOWED_LAYOUT_PROFILES.has(candidate)) {
+    throw new Error(`Unknown act templateType/layoutProfile: ${candidate}`);
   }
 
-  return layoutProfile;
+  return candidate;
 };
 
 module.exports = resolveActLayoutProfile;

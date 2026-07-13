@@ -33,12 +33,6 @@ const buildPropertyGroups = (lostProperty = []) => {
         text:
           buildPropertyText(property) +
           (index === array.length - 1 ? "." : ";"),
-
-        // cost: property.cost?.value || "",
-
-        // costSum: property.cost?.sum || 0,
-
-        // currency: property.cost?.currency || "грн",
       })),
     })),
   }));

@@ -19,8 +19,31 @@ const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
 const buildPdfPath = (docxPath, pdfDir) =>
   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
 
+const buildFinalDocxPath = (job) =>
+  path.join(process.cwd(), "storage", "docx", `${job._id}.docx`);
+
+const buildFinalPdfPath = (job) =>
+  path.join(process.cwd(), "storage", "pdf", `${job._id}.pdf`);
+
 const ensureParentDir = async (filePath) => {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
+};
+
+const cleanupFileIfExists = async (filePath) => {
+  try {
+    await fs.unlink(filePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.warn(`[runOrderGeneration] cleanup failed: ${filePath}`);
+      console.warn(error.message);
+    }
+  }
+};
+
+const cleanupArtifacts = async (paths) => {
+  for (const filePath of paths) {
+    await cleanupFileIfExists(filePath);
+  }
 };
 
 const evaluateCandidate = async ({
@@ -48,6 +71,8 @@ const evaluateCandidate = async ({
       profile,
       pages,
       hasLayoutError,
+      docxPath,
+      pdfPath,
     };
   } catch (error) {
     console.error(
@@ -63,6 +88,8 @@ const evaluateCandidate = async ({
       pages: [],
       hasLayoutError: true,
       error: error.message,
+      docxPath,
+      pdfPath: buildPdfPath(docxPath, pdfDir),
     };
   }
 };
@@ -112,6 +139,8 @@ const runSingleSelection = async ({
         profileName: result.profileName,
         profile: result.profile,
         pages: result.pages,
+        docxPath: result.docxPath,
+        pdfPath: result.pdfPath,
       };
     }
 
@@ -120,6 +149,8 @@ const runSingleSelection = async ({
       profileName: result.profileName,
       profile: result.profile,
       pages: result.pages,
+      docxPath: result.docxPath,
+      pdfPath: result.pdfPath,
     };
   }
 
@@ -144,6 +175,17 @@ const runOrderGeneration = async (report, job) => {
   const { orderProfiles = [], approvalProfiles = [] } =
     documentConfig.profiles || {};
 
+  const finalDocxPath = buildFinalDocxPath(job);
+  const finalPdfPath = buildFinalPdfPath(job);
+  const pdfDir = buildPdfDir();
+
+  const tempArtifacts = [
+    buildDocxPath(job, "order"),
+    buildDocxPath(job, "approval"),
+    buildPdfPath(buildDocxPath(job, "order"), pdfDir),
+    buildPdfPath(buildDocxPath(job, "approval"), pdfDir),
+  ];
+
   const orderResult = await runSingleSelection({
     payload,
     job,
@@ -165,13 +207,6 @@ const runOrderGeneration = async (report, job) => {
     approvalProfile: approvalResult.profile,
   };
 
-  const finalDocxPath = path.join(
-    process.cwd(),
-    "storage",
-    "docx",
-    `${job._id}.docx`,
-  );
-
   await ensureParentDir(finalDocxPath);
 
   console.log(
@@ -179,6 +214,9 @@ const runOrderGeneration = async (report, job) => {
   );
 
   await order.generateOrderDocument(payload, finalDocxPath, finalProfile);
+  await convertToPdf(finalDocxPath, pdfDir);
+
+  await cleanupArtifacts(tempArtifacts);
 
   return {
     status: "passed",
