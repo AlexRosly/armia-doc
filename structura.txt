@@ -68,6 +68,9 @@ src/
 │   ├── act/
 │   │   ├── createAct.js
 │   │   └── index.js
+│   ├── checkStatus/
+│   │   ├── checkStatus.js
+│   │   └── index.js
 │   ├── download/
 │   │   ├── downloadFile.js
 │   │   └── index.js
@@ -76,15 +79,13 @@ src/
 │   │   └── index.js
 │   ├── import
 │   │   ├── importArmdoc.js
+│   │   ├── openArmdoc.js
 │   │   └── index.js
 │   ├── order
 │   │   ├── createOrder.js
 │   │   └── index.js
 │   ├── report
 │   │   ├── createReport.js
-│   │   ├── checkStatusReport.js
-│   │   ├── downloadArmdocReport.js
-│   │   ├── downloadRepotr.js
 │   │   └── index.js
 │   └── index.js
 ├── middelwares/
@@ -102,6 +103,9 @@ src/
 ├── routes/
 │   ├── act.js
 │   ├── armdoc.js
+│   ├── checkStatus.js
+│   ├── checkStatus.js
+│   ├── deleteGeneration.js
 │   ├── download.js
 │   ├── health.js
 │   ├── order.js
@@ -120,23 +124,31 @@ src/
 │   ├── cleanup/
 │   │   ├── cleanupExpiredJobs.js
 │   │   ├── startCleanupScheduler.js
+│   │   ├── cleanupOrphanFiles.js
 │   │   └── index.js
 │   ├── documents/
 │   │   │   ├── act/
 │   │   │   │   ├── templates/
-│   │   │   │   │   ├── ACT_LANDSCAPE_V1/
-│   │   │   │   │   └── ACT_LANDSCAPE_V2/
+│   │   │   │   │   ├── ACT_LANDSCAPE_V1/ACT_LANDSCAPE_V1_0001.docx
+│   │   │   │   │   └── ACT_LANDSCAPE_V2/ACT_LANDSCAPE_V2_0001.docx
+│   │   │   │   ├── actParamSpace.js
 │   │   │   │   ├── buildPropertyGroups.js
 │   │   │   │   ├── buildTemplateDataAct.js
+│   │   │   │   ├── resolveActLayoutProfile.js
 │   │   │   │   ├── profiles.js
 │   │   │   │   ├── generate.js
 │   │   │   │   └── index.js
 │   │   │   ├── order/
 │   │   │   │   ├── templates/
+│   │   │   │   │     ├── order/
+│   │   │   │   │     └── approval/
 │   │   │   │   ├── buildPropertyGroups.js
 │   │   │   │   ├── buildTemplateDataOrder.js
+│   │   │   │   ├── buildTemplateDataApproval.js
 │   │   │   │   ├── profiles.js
-│   │   │   │   ├── generate.js
+│   │   │   │   ├── generateApprovalOnlyDocument.js
+│   │   │   │   ├── generateOrderOnlyDocument.js
+│   │   │   │   ├── resolveProfilesPair.js
 │   │   │   │   └── index.js
 │   │   │   ├── report/
 │   │   │   │   ├── templates/
@@ -149,15 +161,12 @@ src/
 │   │   │       ├── buildPropertyText.js
 │   │   │       ├── generateSingeleDocument.js
 │   │   │       └── index.js
-│   ├── docx/ - скорее всего уже не нужна
-│   │   ├── buildLostProperty.js
-│   │   ├── buildPropertyGroups.js
-│   │   ├── buildTemplateData.js
+│   ├── docx/
 │   │   ├── generateDocx.js
 │   │   └── index.js
 │   ├── generation/
-│   │   ├── createGeneration.js
-│   │   ├── deleteGeneration.js
+│   │   ├── createGenerationJob.js
+│   │   ├── deleteGenerationJob.js
 │   │   ├── persistAndGenerate.js
 │   │   ├── runGeneration.js
 │   │   ├── startGeneration.js
@@ -166,6 +175,8 @@ src/
 │   │   ├── bestEffortSelector.js
 │   │   ├── profiles.js
 │   │   ├── runProfiles.js
+│   │   ├── runActGeneration.js
+│   │   ├── runOrderGeneration.js
 │   │   ├── validateLayout.js
 │   │   └── index.js
 │   ├── pdf/
@@ -178,11 +189,10 @@ src/
 │   └── index.js
 ├── utils/
 │   ├── logger.js
+│   ├── paths.js
 │   └── index.js
 ├── storage/
 │   ├── docx/
 │   ├── pdf/
 │   └── armdoc/
-├── templates/ - уже не нужна
-│   └── report-template.docx
 └── app.js

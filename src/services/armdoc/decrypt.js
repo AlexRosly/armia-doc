@@ -1,38 +1,3 @@
-// const crypto = require("crypto");
-// const zlib = require("zlib");
-
-// const algorithm = "aes-256-gcm";
-
-// const secretKey = require("../../config/armdocSecret");
-
-// const decrypt = (payload) => {
-//   if (payload.format !== "ARMDOC") {
-//     throw new Error("Invalid ARMDOC format");
-//   }
-
-//   if (payload.version !== 1) {
-//     throw new Error("Unsupported ARMDOC version");
-//   }
-
-//   const decipher = crypto.createDecipheriv(
-//     algorithm,
-//     secretKey,
-//     Buffer.from(payload.iv, "base64"),
-//   );
-
-//   decipher.setAuthTag(Buffer.from(payload.authTag, "base64"));
-
-//   const decrypted = Buffer.concat([
-//     decipher.update(Buffer.from(payload.data, "base64")),
-//     decipher.final(),
-//   ]);
-
-//   const json = zlib.gunzipSync(decrypted);
-
-//   return JSON.parse(json.toString("utf8"));
-// };
-
-// module.exports = decrypt;
 const crypto = require("crypto");
 const zlib = require("zlib");
 

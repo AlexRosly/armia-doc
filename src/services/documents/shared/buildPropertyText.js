@@ -9,7 +9,7 @@ const buildPropertyText = (property) => {
 
   return `${parts.join(", ")} — в кількості ${
     property.quantity
-  } ${property.unitOfMeasurement}.`;
+  } ${property.unitOfMeasurement}`;
 };
 
 module.exports = buildPropertyText;

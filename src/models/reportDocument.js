@@ -70,7 +70,7 @@ const DocumentDataSchema = Schema(
   {
     documentDetails: {
       recipient: { type: String, default: "" },
-      documentTitle: { type: String, default: "" },
+      documentTitle: { type: String, default: "РАПОРТ" },
     },
 
     eventDescription: TextBlockSchema,

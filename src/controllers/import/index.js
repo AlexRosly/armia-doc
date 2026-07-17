@@ -1,5 +1,9 @@
-const importArmdoc = require('./importArmdoc');
+const openArmdoc = require("./openArmdoc");
+// const importArmdoc = require("./importArmdoc");
+// const exportArmdoc = require("./exportArmdoc");
 
 module.exports = {
-    importArmdoc
-}
+  openArmdoc,
+  // importArmdoc,
+  // exportArmdoc,
+};

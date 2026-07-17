@@ -1,34 +1,27 @@
-// const calculateScore = (candidate) => {
+// const getScore = (candidate) => {
 //   const pages = candidate.pages;
 
-//   const violations = pages.filter(
+//   const invalidPages = pages.filter(
 //     (page) => page.status !== "target" && page.status !== "last_page_allowed",
 //   );
 
-//   const totalDeviation = violations.reduce(
-//     (sum, page) => sum + page.deviationCm,
-//     0,
-//   );
-
-//   const maxDeviation = Math.max(
-//     ...violations.map((page) => page.deviationCm),
-//     0,
-//   );
-
 //   return {
-//     violations: violations.length,
+//     violations: invalidPages.length,
 
-//     totalDeviation,
+//     totalDeviation: invalidPages.reduce(
+//       (sum, page) => sum + page.deviationCm,
+//       0,
+//     ),
 
-//     maxDeviation,
+//     maxDeviation: Math.max(...invalidPages.map((page) => page.deviationCm), 0),
 //   };
 // };
 
 // const bestEffortSelector = (results) => {
 //   return results.sort((a, b) => {
-//     const A = calculateScore(a);
+//     const A = getScore(a);
 
-//     const B = calculateScore(b);
+//     const B = getScore(b);
 
 //     if (A.violations !== B.violations) {
 //       return A.violations - B.violations;
@@ -41,42 +34,47 @@
 //     return A.maxDeviation - B.maxDeviation;
 //   })[0];
 // };
-
 // module.exports = bestEffortSelector;
 const getScore = (candidate) => {
-  const pages = candidate.pages;
-
-  const invalidPages = pages.filter(
-    (page) => page.status !== "target" && page.status !== "last_page_allowed",
+  const marginPenalty = (candidate.marginViolations || []).reduce(
+    (sum, page) => sum + (page.deviationCm || 0),
+    0,
   );
 
-  return {
-    violations: invalidPages.length,
+  const hardPenalty = (candidate.hardViolations || []).length * 1000;
 
-    totalDeviation: invalidPages.reduce(
-      (sum, page) => sum + page.deviationCm,
+  return {
+    hardViolationsCount: (candidate.hardViolations || []).length,
+    marginViolationsCount: (candidate.marginViolations || []).length,
+    totalPenalty: hardPenalty + marginPenalty,
+    maxMarginDeviation: Math.max(
+      ...(candidate.marginViolations || []).map(
+        (page) => page.deviationCm || 0,
+      ),
       0,
     ),
-
-    maxDeviation: Math.max(...invalidPages.map((page) => page.deviationCm), 0),
   };
 };
 
-const bestEffortSelector = (results) => {
-  return results.sort((a, b) => {
+const bestEffortSelector = (results = []) => {
+  return results.slice().sort((a, b) => {
     const A = getScore(a);
-
     const B = getScore(b);
 
-    if (A.violations !== B.violations) {
-      return A.violations - B.violations;
+    if (A.hardViolationsCount !== B.hardViolationsCount) {
+      return A.hardViolationsCount - B.hardViolationsCount;
     }
 
-    if (A.totalDeviation !== B.totalDeviation) {
-      return A.totalDeviation - B.totalDeviation;
+    if (A.marginViolationsCount !== B.marginViolationsCount) {
+      return A.marginViolationsCount - B.marginViolationsCount;
     }
 
-    return A.maxDeviation - B.maxDeviation;
+    if (A.totalPenalty !== B.totalPenalty) {
+      return A.totalPenalty - B.totalPenalty;
+    }
+
+    return A.maxMarginDeviation - B.maxMarginDeviation;
   })[0];
 };
+
 module.exports = bestEffortSelector;

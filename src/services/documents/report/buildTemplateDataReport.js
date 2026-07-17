@@ -30,6 +30,7 @@ const buildTemplateDataReport = (payload, profile = {}) => {
       .filter(Boolean)
       .map((text) => ({ text }));
   };
+
   return {
     recipient: data.documentDetails.recipient,
     documentTitle: data.documentDetails.documentTitle,
@@ -54,3 +55,55 @@ const buildTemplateDataReport = (payload, profile = {}) => {
 };
 
 module.exports = buildTemplateDataReport;
+// const buildPropertyGroups = require("./buildPropertyGroups");
+
+// const buildTemplateDataReport = (payload, profile = {}) => {
+//   const data = payload.data;
+
+//   const signerDate = new Date(data.signer.date).toLocaleDateString("uk-UA", {
+//     day: "2-digit",
+//     month: "2-digit",
+//     year: "numeric",
+//   });
+
+//   const capitalizeFirstLetter = (value = "", locale = "uk-UA") => {
+//     const str = String(value).trim();
+//     if (!str) return "";
+
+//     const index = Array.from(str).findIndex((char) => /\p{L}/u.test(char));
+//     if (index === -1) return str;
+
+//     const chars = Array.from(str);
+//     chars[index] = chars[index].toLocaleUpperCase(locale);
+
+//     return chars.join("");
+//   };
+
+//   const normalizeMultilineText = (value = "") => {
+//     return String(value || "")
+//       .replace(/\r\n/g, "\n")
+//       .replace(/\\n/g, "\n")
+//       .trim();
+//   };
+
+//   return {
+//     recipient: data.documentDetails.recipient,
+//     documentTitle: data.documentDetails?.documentTitle || "РАПОРТ",
+//     eventDescription: data.eventDescription.text,
+//     services: buildPropertyGroups(data.lostProperty),
+//     specialPropertyCases: normalizeMultilineText(
+//       data.specialPropertyCases?.text || "",
+//     ),
+//     confirmationAndGrounds: normalizeMultilineText(
+//       data.confirmationAndGrounds?.text || "",
+//     ),
+//     requestPart: capitalizeFirstLetter(data.requestPart?.text || ""),
+//     signerPosition: data.signer.position,
+//     signerMilitaryUnit: data.signer.militaryUnit,
+//     signerRank: data.signer.rank,
+//     signerFullName: data.signer.fullName,
+//     signerDate: signerDate,
+//   };
+// };
+
+// module.exports = buildTemplateDataReport;

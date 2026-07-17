@@ -46,6 +46,34 @@ const cleanupArtifacts = async (paths) => {
   }
 };
 
+const buildValidationContext = (payload, label) => {
+  if (label === "order") {
+    const signer = payload.data?.signer || {};
+
+    return {
+      documentType: "order",
+      markers: {
+        nakazuiu: "НАКАЗУЮ:",
+        signerPosition: signer.position,
+        signerRank: signer.rank,
+        signerFirstName: signer.firstName,
+        signerLastName: signer.lastName,
+      },
+    };
+  }
+
+  if (label === "approval") {
+    return {
+      documentType: "approval",
+      markers: {},
+    };
+  }
+  return {
+    documentType: label,
+    markers: {},
+  };
+};
+
 const evaluateCandidate = async ({
   payload,
   docxPath,
@@ -61,8 +89,21 @@ const evaluateCandidate = async ({
     await convertToPdf(docxPath, pdfDir);
 
     const pdfPath = buildPdfPath(docxPath, pdfDir);
-    const pages = await validateLayout(pdfPath);
-    const hasLayoutError = pages.some((page) => page.status === "below_min");
+    const validationContext = buildValidationContext(payload, label);
+    const layoutResult = await validateLayout(pdfPath, validationContext);
+
+    const pages = Array.isArray(layoutResult)
+      ? layoutResult
+      : Array.isArray(layoutResult.pages)
+        ? layoutResult.pages
+        : [];
+
+    const hardViolations = Array.isArray(layoutResult?.hardViolations)
+      ? layoutResult.hardViolations
+      : [];
+
+    const hasBelowMinPage = pages.some((page) => page.status === "below_min");
+    const hasLayoutError = hasBelowMinPage || hardViolations.length > 0;
 
     return {
       ok: true,
@@ -70,6 +111,7 @@ const evaluateCandidate = async ({
       profileName,
       profile,
       pages,
+      hardViolations,
       hasLayoutError,
       docxPath,
       pdfPath,
@@ -86,6 +128,7 @@ const evaluateCandidate = async ({
       profileName,
       profile,
       pages: [],
+      hardViolations: [],
       hasLayoutError: true,
       error: error.message,
       docxPath,
