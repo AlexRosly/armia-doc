@@ -66,6 +66,17 @@ const SignerSchema = Schema(
   { _id: false },
 );
 
+const printModeSchema = Schema(
+  {
+    printMode: {
+      type: String,
+      required: true,
+      enum: ["single-sided", "duplex"],
+    },
+  },
+  { _id: false },
+);
+
 const DocumentDataSchema = Schema(
   {
     documentDetails: {
@@ -88,6 +99,7 @@ const DocumentDataSchema = Schema(
     requestPart: TextBlockSchema,
 
     signer: SignerSchema,
+    printSettings: printModeSchema,
   },
   { _id: false },
 );

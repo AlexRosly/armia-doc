@@ -1,5 +1,20 @@
 const buildPropertyGroups = require("./buildPropertyGroups");
 
+const MONTHS_GENITIVE = [
+  "січня",
+  "лютого",
+  "березня",
+  "квітня",
+  "травня",
+  "червня",
+  "липня",
+  "серпня",
+  "вересня",
+  "жовтня",
+  "листопада",
+  "грудня",
+];
+
 const toNumber = (value) => {
   if (value === null || value === undefined || value === "") return 0;
   if (typeof value === "number") return value;
@@ -10,14 +25,54 @@ const toNumber = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-const buildTemplateDataAct = (payload) => {
-  const data = payload.data;
-  const services = buildPropertyGroups(data.lostProperty);
+const normalizeCommanderDate = (params) => {
+  const dayRaw = String(params.day ?? "").trim();
+  const monthRaw = String(params.month ?? "").trim();
+  const yearRaw = String(params.year ?? "").trim();
+
+  const day =
+    dayRaw && Number(dayRaw) >= 1 && Number(dayRaw) <= 31
+      ? dayRaw.padStart(2, "0")
+      : "___";
+
+  let month = "__________";
+
+  if (monthRaw) {
+    const monthNumber = Number(monthRaw);
+
+    if (
+      Number.isInteger(monthNumber) &&
+      monthNumber >= 1 &&
+      monthNumber <= 12
+    ) {
+      month = MONTHS_GENITIVE[monthNumber - 1];
+    } else {
+      // Коли frontend уже передав назву місяця у родовому відмінку.
+      month = monthRaw;
+    }
+  }
+
+  const year = /^\d{4}$/.test(yearRaw) ? yearRaw : "____";
 
   return {
-    //
-    // approval
-    //
+    commanderDay: day,
+    commanderMonth: month,
+    commanderYear: year,
+  };
+};
+
+const buildTemplateDataAct = (payload) => {
+  const data = payload.data || {};
+  const services = buildPropertyGroups(data.lostProperty || []);
+  const copiesCountNumber = toNumber(data.actCopies?.count);
+  const showCommanderConclusion = copiesCountNumber > 1;
+  const commanderConclusion = data.commanderConclusion || {};
+
+  const normalizeDate = normalizeCommanderDate(
+    commanderConclusion.signatureDate,
+  );
+
+  return {
     copyNumber: data.approval?.copyNumber || "",
     approvalPosition: data.approval?.position || "",
     approvalRank: data.approval?.rank || "",
@@ -26,57 +81,41 @@ const buildTemplateDataAct = (payload) => {
     approvalDay: data.approval?.approvalDate?.day || "___",
     approvalMonth: data.approval?.approvalDate?.month || "___",
     approvalYear: data.approval?.approvalDate?.year || "",
-    //
-    // accounting
-    //
+
     operationBasis: data.accountingDetails?.operationBasis || "",
     militaryUnit: data.accountingDetails?.militaryUnit || "",
-    //
-    // property
-    //
+
     services,
     totalItemsCount: data.writeOffValue?.totalItemsCount || "",
     grandTotalResidualCostUah:
       data.writeOffValue?.grandTotalResidualCostUah || "",
 
-    //
-    // texts
-    //
     eventDescription: data.eventDescription?.text || "",
     eventConfirmation: data.eventConfirmation?.text || "",
     commissionConclusion: data.commissionConclusion || "",
-    //
-    // commission
-    //
+
     chairmanPosition: data.commission?.chairman?.position || "",
     chairmanRank: data.commission?.chairman?.rank || "",
     chairmanFirstName: data.commission?.chairman?.firstName || "",
     chairmanLastName: data.commission?.chairman?.lastName || "",
     commissionMembers: data.commission?.members || [],
-    //
-    // witnesses
-    //
+
     eventWitnesses: data.eventWitnesses || [],
-    //
-    // chiefs
-    //
     supplyServiceChiefs: data.supplyServiceChiefs || [],
-    //
-    // copies
-    //
+
     copiesCount: data.actCopies?.count || "",
     copies: data.actCopies?.copies || [],
-    //
-    // commander
-    //
-    commanderText: data.commanderConclusion?.text || "",
-    commanderPosition: data.commanderConclusion?.position || "",
-    commanderRank: data.commanderConclusion?.rank || "",
-    commanderFirstName: data.commanderConclusion?.firstName || "",
-    commanderLastName: data.commanderConclusion?.lastName || "",
-    commanderDay: data.commanderConclusion?.signatureDate?.day || "___",
-    commanderMonth: data.commanderConclusion?.signatureDate?.month || "___",
-    commanderYear: data.commanderConclusion?.signatureDate?.year || "",
+
+    showCommanderConclusion,
+
+    commanderText: commanderConclusion.text || "",
+    commanderPosition: commanderConclusion.position || "",
+    commanderRank: commanderConclusion.rank || "",
+    commanderFirstName: commanderConclusion.firstName || "",
+    commanderLastName: commanderConclusion.lastName || "",
+    commanderDay: normalizeDate?.commanderDay || "___",
+    commanderMonth: normalizeDate?.commanderMonth || "__________",
+    commanderYear: normalizeDate?.commanderYear || "____",
   };
 };
 

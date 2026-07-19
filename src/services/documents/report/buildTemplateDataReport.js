@@ -33,7 +33,7 @@ const buildTemplateDataReport = (payload, profile = {}) => {
 
   return {
     recipient: data.documentDetails.recipient,
-    documentTitle: data.documentDetails.documentTitle,
+    documentTitle: data.documentDetails.documentTitle || "РАПОРТ",
     eventDescription: data.eventDescription.text,
     // services: buildPropertyGroups(data.lostProperty),
     services: buildPropertyGroups(data.lostProperty),

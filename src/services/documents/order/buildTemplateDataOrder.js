@@ -4,6 +4,24 @@ const buildTemplateDataOrder = (payload) => {
   const data = payload.data || {};
   const approvalAndVisa = payload.approvalAndVisa || {};
 
+  const splitToParagraphs = (value = "") => {
+    return String(value)
+      .replace(/\\n/g, "\n")
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((text) => ({ text }));
+  };
+
+  const splitToParagraphsDirectiveSection = (value = "") => {
+    return String(value)
+      .replace(/\\r/g, "\r")
+      .split("\r")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((text) => ({ text }));
+  };
+
   const templateData = {
     whoseOrder: data.orderDetails?.whoseOrder || "",
     settlement: data.orderDetails?.settlement || "",
@@ -12,8 +30,10 @@ const buildTemplateDataOrder = (payload) => {
 
     eventDescription: data.eventDescription?.text || "",
     services: buildPropertyGroups(data.lostProperty || []),
-    eventConfirmation: data.eventConfirmation?.text || "",
-    directiveSection: data.directiveSection?.text || "",
+    eventConfirmation: splitToParagraphs(data.eventConfirmation?.text || ""),
+    directiveSection: splitToParagraphsDirectiveSection(
+      data.directiveSection?.text || "",
+    ),
 
     signerPosition: data.signer?.position || "",
     signerRank: data.signer?.rank || "",
