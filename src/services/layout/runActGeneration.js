@@ -185,9 +185,9 @@ const runActGeneration = async (report, job) => {
     throw new Error(`Unknown act layoutProfile: ${layoutProfile}`);
   }
 
-  console.log(
-    `[runActGeneration] selecting act template list, layoutProfile=${layoutProfile}, total=${profiles.length}`,
-  );
+  // console.log(
+  //   `[runActGeneration] selecting act template list, layoutProfile=${layoutProfile}, total=${profiles.length}`,
+  // );
 
   try {
     let checkedCount = 0;
@@ -223,9 +223,9 @@ const runActGeneration = async (report, job) => {
         continue;
       }
 
-      console.log(
-        `[runActGeneration] act passed with profile=${result.profileName}, checked=${checkedCount}`,
-      );
+      // console.log(
+      //   `[runActGeneration] act passed with profile=${result.profileName}, checked=${checkedCount}`,
+      // );
 
       await finalizeResult({
         sourceDocxPath: result.docxPath,

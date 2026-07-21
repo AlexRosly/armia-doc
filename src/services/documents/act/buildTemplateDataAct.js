@@ -25,7 +25,7 @@ const toNumber = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-const normalizeCommanderDate = (params) => {
+const normalizeCommanderDate = (params = {}) => {
   const dayRaw = String(params.day ?? "").trim();
   const monthRaw = String(params.month ?? "").trim();
   const yearRaw = String(params.year ?? "").trim();

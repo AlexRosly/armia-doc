@@ -4,6 +4,7 @@ const generateOrderDocument = require("./generate");
 const resolveProfilePair = require("./resolveProfilePair");
 const generateOrderOnlyDocument = require("./generateOrderOnlyDocument");
 const generateApprovalOnlyDocument = require("./generateApprovalOnlyDocument");
+const ORDER_PRINT_SETTINGS = require("./orderPrintSettings");
 
 module.exports = {
   buildTemplateData,
@@ -12,4 +13,5 @@ module.exports = {
   resolveProfilePair,
   generateOrderOnlyDocument,
   generateApprovalOnlyDocument,
+  ORDER_PRINT_SETTINGS,
 };

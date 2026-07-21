@@ -49,9 +49,17 @@ const LostPropertySchema = Schema(
   { _id: false },
 );
 
+const servicesSchema = Schema(
+  {
+    item: { type: String, default: "" },
+  },
+  { _id: false },
+);
+
 const TextBlockSchema = Schema(
   {
     text: { type: String, default: "" },
+    services: [servicesSchema],
   },
   { _id: false },
 );
@@ -78,7 +86,7 @@ const DocumentDataSchema = Schema(
     eventDescription: TextBlockSchema,
     lostProperty: [LostPropertySchema],
     eventConfirmation: TextBlockSchema,
-    directiveSection: TextBlockSchema,
+    directiveSection: [TextBlockSchema],
     signer: SignerSchema,
   },
   { _id: false },
