@@ -47,7 +47,7 @@ const SpecialPropertyCasesSchema = Schema(
   {
     status: {
       type: String,
-      enum: ["none", "exists"],
+      enum: ["none", "other"], //other
       default: "none",
     },
     text: { type: String, default: "" },
