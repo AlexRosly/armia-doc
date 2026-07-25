@@ -6,6 +6,8 @@
   "scripts": {
     "start": "cross-env NODE_ENV=production node ./server.js",
     "start:dev": "cross-env NODE_ENV=development nodemon ./server.js",
+    "worker": "cross-env NODE_ENV=production node ./src/queue/generationWorker.js",
+    "worker:dev": "cross-env NODE_ENV=development nodemon ./src/queue/generationWorker.js",
     "lint": "eslint **/*.js",
     "lint:fix": "eslint --fix **/*.js",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -22,12 +24,14 @@
   },
   "homepage": "https://github.com/AlexRosly/armia-doc#readme",
   "dependencies": {
+    "bullmq": "^5.81.2",
     "canvas": "^3.2.3",
     "cors": "^2.8.6",
     "cross-env": "^10.1.0",
     "docxtemplater": "^3.68.7",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "ioredis": "^5.11.1",
     "joi": "^18.2.1",
     "jszip": "^3.10.1",
     "libreoffice": "^0.4.5",

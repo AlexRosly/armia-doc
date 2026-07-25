@@ -119,8 +119,8 @@ const GenerationJobSchema = Schema(
 
     status: {
       type: String,
-      enum: ["processing", "ready", "failed"],
-      default: "processing",
+      enum: ["queued", "processing", "ready", "failed"],
+      default: "queued",
     },
     error: {
       type: String,

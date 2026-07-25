@@ -371,6 +371,11 @@ const READY_TTL_MS = 10 * 60 * 1000;
 
 const runGenerationJob = async (report, job) => {
   try {
+    await GenerationJob.findByIdAndUpdate(job._id, {
+      status: "processing",
+      error: null,
+    });
+
     if (job.mode === "with_armdoc") {
       const armdocPath = path.join(
         process.cwd(),

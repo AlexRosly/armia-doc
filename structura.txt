@@ -1,48 +1,3 @@
-Node.js + Express + MongoDB
-
-src/
-│
-├── controllers/
-│   └── generation/
-│       ├── createGeneration.js
-│       ├── downloadDocx.js
-│       └── downloadArmdoc.js
-│
-├── services/
-│   ├── generation/
-│   │   ├── generateReport.js
-│   │   ├── validatePayload.js
-│   │   ├── createJob.js
-│   │   └── cleanupJob.js
-│   │
-│   ├── docx/
-│   │   ├── generateDocx.js
-│   │   ├── layoutValidator.js
-│   │   ├── profileRunner.js
-│   │   └── profiles.js
-│   │
-│   ├── armdoc/
-│   │   ├── createArmdoc.js
-│   │   └── encryptArmdoc.js
-│   │
-│   └── pdf/
-│       ├── convertToPdf.js
-│       └── parsePdf.js
-│
-├── models/
-│   ├── ReportDocument.js
-│   └── GenerationJob.js
-│
-├── templates/
-│   └── report-template.docx
-│
-├── storage/
-│   ├── docx/
-│   ├── pdf/
-│   └── armdoc/
-│
-└── routes/
-
 Я бы сейчас план разработки перестроил так:
 Backend v1 (почти завершен)
  Рапорт -Готово
@@ -56,10 +11,10 @@ Backend v1 (почти завершен)
  Автоочистка через 10 минут -Готово
 
 Backend v2
- Шифрование - Проверить
+ Шифрование -Готово
  Очередь задач
- История документов
  WebSocket статусы
+ История документов
  Пользователи
 
 src/

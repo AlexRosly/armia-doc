@@ -8,7 +8,7 @@ const createGenerationJob = async (document, session = null) => {
         documentType: document.documentType,
         documentId: document._id,
         mode: document.mode,
-        status: "processing",
+        status: "queued",
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       },
     ],

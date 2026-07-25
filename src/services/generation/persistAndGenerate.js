@@ -56,7 +56,7 @@ const persistAndGenerate = async ({
     await session.commitTransaction();
     session.endSession();
 
-    startGeneration(document, job);
+    await startGeneration(document, job);
 
     return {
       document,
