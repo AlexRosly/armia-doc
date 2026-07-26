@@ -30,6 +30,8 @@ const startWorker = async () => {
   const worker = new Worker(
     "generation",
     async (bullJob) => {
+      console.log(`[queue] processing bull job ${bullJob.id}`, bullJob.data);
+
       const { jobId, documentId, documentType } = bullJob.data;
 
       const job = await GenerationJob.findById(jobId);
@@ -60,8 +62,11 @@ const startWorker = async () => {
     console.error(`[queue] failed bull job ${job?.id}: ${error.message}`);
   });
 
+  worker.on("error", (error) => {
+    console.error("[queue] worker error:", error);
+  });
+
   console.log("[queue] generation worker started");
-  console.log(`[queue] processing bull job ${bullJob.id}`, bullJob.data);
 };
 
 startWorker().catch((error) => {
