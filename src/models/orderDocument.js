@@ -49,17 +49,17 @@ const LostPropertySchema = Schema(
   { _id: false },
 );
 
-const servicesSchema = Schema(
-  {
-    item: { type: String, default: "" },
-  },
-  { _id: false },
-);
+// const servicesSchema = Schema(
+//   {
+//     item: { type: String, default: "" },
+//   },
+//   { _id: false },
+// );
 
 const TextBlockSchema = Schema(
   {
     text: { type: String, default: "" },
-    services: [servicesSchema],
+    services: { type: Boolean, default: false },
   },
   { _id: false },
 );

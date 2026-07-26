@@ -445,6 +445,10 @@ const runGenerationJob = async (report, job) => {
       },
       layoutCheck: jobLayoutCheck,
     });
+
+    console.log(`[generation] start job=${job._id} type=${job.documentType}`);
+    console.log(`[generation] ready job=${job._id}`);
+    console.log(`[generation] failed job=${job._id}: ${error.message}`);
   } catch (error) {
     console.error(error);
 

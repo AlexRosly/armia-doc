@@ -61,6 +61,7 @@ const startWorker = async () => {
   });
 
   console.log("[queue] generation worker started");
+  console.log(`[queue] processing bull job ${bullJob.id}`, bullJob.data);
 };
 
 startWorker().catch((error) => {

@@ -10,7 +10,7 @@
 //   });
 // };
 
-const generationQueue = require("../../queue");
+const { generationQueue } = require("../../queue");
 
 const startGeneration = async (document, job) => {
   await generationQueue.add("generate-document", {
@@ -25,3 +25,31 @@ const startGeneration = async (document, job) => {
 };
 
 module.exports = startGeneration;
+// const runGenerationJob = require("./runGenerationJob");
+
+// const isQueueEnabled = process.env.QUEUE_ENABLED !== "false";
+
+// const startGeneration = async (document, job) => {
+//   if (!isQueueEnabled) {
+//     console.log(
+//       `[queue] disabled, running generation inline for mongo=${job._id}`,
+//     );
+
+//     await runGenerationJob(document, job);
+//     return;
+//   }
+
+//   const generationQueue = require("../../queue/generationQueue");
+
+//   const bullJob = await generationQueue.add("generate-document", {
+//     jobId: String(job._id),
+//     documentId: String(document._id),
+//     documentType: job.documentType,
+//   });
+
+//   console.log(
+//     `[queue] enqueued generation job mongo=${job._id} bull=${bullJob.id} type=${job.documentType}`,
+//   );
+// };
+
+// module.exports = startGeneration;
