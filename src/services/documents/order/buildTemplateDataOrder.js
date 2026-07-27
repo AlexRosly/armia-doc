@@ -292,6 +292,7 @@ const buildTemplateDataOrder = (payload) => {
     settlement: data.orderDetails?.settlement || "",
     orderDate: data.orderDetails?.orderDate || "",
     orderTitle: data.orderDetails?.orderTitle || "",
+    orderNumber: data.orderDetails?.orderNumber || "_______",
 
     eventDescription: data.eventDescription?.text || "",
     services: propertyGroups,

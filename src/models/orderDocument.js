@@ -82,6 +82,9 @@ const DocumentDataSchema = Schema(
       settlement: { type: String, default: "" },
       orderDate: { type: String, default: "" },
       orderTitle: { type: String, default: "" },
+      orderNumber: {
+        type: Number,
+      },
     },
     eventDescription: TextBlockSchema,
     lostProperty: [LostPropertySchema],
@@ -183,7 +186,6 @@ const OrderDocumentSchema = Schema(
       required: true,
       enum: ["with_armdoc", "docx_only"],
     },
-
     data: {
       type: DocumentDataSchema,
       required: true,
