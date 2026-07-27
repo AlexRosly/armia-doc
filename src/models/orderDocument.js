@@ -82,10 +82,7 @@ const DocumentDataSchema = Schema(
       settlement: { type: String, default: "" },
       orderDate: { type: String, default: "" },
       orderTitle: { type: String, default: "" },
-      orderNumber: {
-        type: String,
-        default: "",
-      },
+      orderNumber: { type: String, default: "" },
     },
     eventDescription: TextBlockSchema,
     lostProperty: [LostPropertySchema],
