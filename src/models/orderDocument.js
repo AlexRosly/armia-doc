@@ -83,7 +83,8 @@ const DocumentDataSchema = Schema(
       orderDate: { type: String, default: "" },
       orderTitle: { type: String, default: "" },
       orderNumber: {
-        type: Number,
+        type: String,
+        default: "",
       },
     },
     eventDescription: TextBlockSchema,
