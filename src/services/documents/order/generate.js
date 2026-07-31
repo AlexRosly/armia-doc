@@ -443,16 +443,9 @@ const generateOrderDocument = async ({
       throw error;
     }
 
-    // console.log(
-    //   "[order] generated merged docx validation:",
-    //   mergedDocxValidation.meta,
-    // );
-
     const assemblerPrintSettings = buildAssemblerPrintSettings(
       prepared.printSettings,
     );
-
-    // console.log("[order] assembler print settings:", assemblerPrintSettings);
 
     const printPdfMeta = await assembleOrderPrintPdf({
       orderPdfPath: orderSource.pdfPath,
@@ -460,11 +453,6 @@ const generateOrderDocument = async ({
       outputPdfPath: assembledTempPdfPath,
       printSettings: assemblerPrintSettings,
     });
-
-    // console.log("[order] assembled final pdf:", {
-    //   ...printPdfMeta,
-    //   outputPdfPath: assembledTempPdfPath,
-    // });
 
     const printPdfValidation = await validateAssembledOrderPrintPdf({
       pdfPath: assembledTempPdfPath,
@@ -481,13 +469,6 @@ const generateOrderDocument = async ({
 
     await safeUnlink(finalPdfPath);
     await fs.rename(assembledTempPdfPath, finalPdfPath);
-
-    // console.log("[order] validated final pdf:", {
-    //   ...printPdfValidation.meta,
-    //   pdfPath: finalPdfPath,
-    // });
-    // console.log("[order] prepare meta:", prepared.meta);
-    // console.log("[order] print settings:", prepared.printSettings);
 
     return {
       docxPath: outputPath,

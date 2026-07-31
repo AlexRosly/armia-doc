@@ -24,10 +24,10 @@ const buildPayload = (report) => ({
 const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
 
 const buildFinalDocxPath = (job) =>
-  path.join(process.cwd(), "storage", "docx", `${job._id}.docx`);
+  path.join(process.cwd(), "storage", "docx", `${job._id}_act.docx`);
 
 const buildFinalPdfPath = (job) =>
-  path.join(process.cwd(), "storage", "pdf", `${job._id}.pdf`);
+  path.join(process.cwd(), "storage", "pdf", `${job._id}_act.pdf`);
 
 const buildCandidateDocxPath = (job, index) =>
   path.join(
@@ -185,10 +185,6 @@ const runActGeneration = async (report, job) => {
     throw new Error(`Unknown act layoutProfile: ${layoutProfile}`);
   }
 
-  // console.log(
-  //   `[runActGeneration] selecting act template list, layoutProfile=${layoutProfile}, total=${profiles.length}`,
-  // );
-
   try {
     let checkedCount = 0;
 
@@ -223,10 +219,6 @@ const runActGeneration = async (report, job) => {
         continue;
       }
 
-      // console.log(
-      //   `[runActGeneration] act passed with profile=${result.profileName}, checked=${checkedCount}`,
-      // );
-
       await finalizeResult({
         sourceDocxPath: result.docxPath,
         finalDocxPath,
@@ -244,6 +236,8 @@ const runActGeneration = async (report, job) => {
         },
         resolvedProfile: result.profile,
         outputPath: finalDocxPath,
+        docxPath: finalDocxPath,
+        pdfPath: finalPdfPath,
       };
     }
 

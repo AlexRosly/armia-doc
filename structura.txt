@@ -12,10 +12,8 @@ Backend v1 (почти завершен)
 
 Backend v2
  Шифрование -Готово
- Очередь задач
+ Очередь задач - Готово
  WebSocket статусы
- История документов
- Пользователи
 
 src/
 │
@@ -55,10 +53,14 @@ src/
 │   ├── reportDocument.js
 │   ├── reportValidator.js
 │   └── index.js
+├── queue/
+│   ├── connection.js
+│   ├── generationQueue.js
+│   ├── generationWorker.js
+│   └── index.js
 ├── routes/
 │   ├── act.js
 │   ├── armdoc.js
-│   ├── checkStatus.js
 │   ├── checkStatus.js
 │   ├── deleteGeneration.js
 │   ├── download.js
@@ -82,40 +84,44 @@ src/
 │   │   ├── cleanupOrphanFiles.js
 │   │   └── index.js
 │   ├── documents/
-│   │   │   ├── act/
-│   │   │   │   ├── templates/
-│   │   │   │   │   ├── ACT_LANDSCAPE_V1/ACT_LANDSCAPE_V1_0001.docx
-│   │   │   │   │   └── ACT_LANDSCAPE_V2/ACT_LANDSCAPE_V2_0001.docx
-│   │   │   │   ├── actParamSpace.js
-│   │   │   │   ├── buildPropertyGroups.js
-│   │   │   │   ├── buildTemplateDataAct.js
-│   │   │   │   ├── resolveActLayoutProfile.js
-│   │   │   │   ├── profiles.js
-│   │   │   │   ├── generate.js
-│   │   │   │   └── index.js
-│   │   │   ├── order/
-│   │   │   │   ├── templates/
-│   │   │   │   │     ├── order/
-│   │   │   │   │     └── approval/
-│   │   │   │   ├── buildPropertyGroups.js
-│   │   │   │   ├── buildTemplateDataOrder.js
-│   │   │   │   ├── buildTemplateDataApproval.js
-│   │   │   │   ├── profiles.js
-│   │   │   │   ├── generateApprovalOnlyDocument.js
-│   │   │   │   ├── generateOrderOnlyDocument.js
-│   │   │   │   ├── resolveProfilesPair.js
-│   │   │   │   └── index.js
-│   │   │   ├── report/
-│   │   │   │   ├── templates/
-│   │   │   │   ├── buildPropertyGroups.js
-│   │   │   │   ├── buildTemplateDataReport.js
-│   │   │   │   ├── profiles.js
-│   │   │   │   ├── generate.js
-│   │   │   │   └── index.js
-│   │   │   └── shared/
-│   │   │       ├── buildPropertyText.js
-│   │   │       ├── generateSingeleDocument.js
-│   │   │       └── index.js
+│   │      ├── act/
+│   │      │   ├── templates/
+│   │      │   │   ├── ACT_LANDSCAPE_V1/ACT_LANDSCAPE_V1_0001.docx
+│   │      │   │   └── ACT_LANDSCAPE_V2/ACT_LANDSCAPE_V2_0001.docx
+│   │      │   ├── actParamSpace.js
+│   │      │   ├── buildPropertyGroups.js
+│   │      │   ├── buildTemplateDataAct.js
+│   │      │   ├── resolveActLayoutProfile.js
+│   │      │   ├── profiles.js
+│   │      │   ├── generate.js
+│   │      │   └── index.js
+│   │      ├── order/
+│   │      │   ├── templates/
+│   │      │   │     ├── order/
+│   │      │   │     └── approval/
+│   │      │   ├── buildPropertyGroups.js
+│   │      │   ├── buildTemplateDataOrder.js
+│   │      │   ├── buildTemplateDataApproval.js
+│   │      │   ├── profiles.js
+│   │      │   ├── generateApprovalOnlyDocument.js
+│   │      │   ├── generateOrderOnlyDocument.js
+│   │      │   ├── resolveProfilesPair.js
+│   │      │   └── index.js
+│   │      ├── report/
+│   │      │   ├── templates/
+│   │      │   ├── applyReportPrintSetting.js
+│   │      │   ├── buildPropertyGroups.js
+│   │      │   ├── buildTemplateDataReport.js
+│   │      │   ├── profiles.js
+│   │      │   ├── generate.js
+│   │      │   └── index.js
+│   │      ├── shared/
+│   │      │   ├── buildPropertyText.js
+│   │      │   ├── generateSingeleDocument.js
+│   │      │   ├── resolvePrintSetting.js
+│   │      │   └── index.js
+│   │      └── index.js
+│   │   
 │   ├── docx/
 │   │   ├── generateDocx.js
 │   │   └── index.js
@@ -127,6 +133,11 @@ src/
 │   │   ├── startGeneration.js
 │   │   └── index.js
 │   ├── layout/
+│   │   ├── validators
+│   │   │        ├──common.js
+│   │   │        ├──order.js
+│   │   │        ├──report.js
+│   │   │        └── index.js
 │   │   ├── bestEffortSelector.js
 │   │   ├── profiles.js
 │   │   ├── runProfiles.js

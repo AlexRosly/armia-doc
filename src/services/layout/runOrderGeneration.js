@@ -598,7 +598,7 @@ const buildPdfPath = (docxPath, pdfDir) =>
   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
 
 const buildFinalDocxPath = (job) =>
-  path.join(process.cwd(), "storage", "docx", `${job._id}.docx`);
+  path.join(process.cwd(), "storage", "docx", `${job._id}_nakaz.docx`);
 
 const ensureParentDir = async (filePath) => {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
