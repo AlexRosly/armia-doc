@@ -3,16 +3,16 @@ const { persistAndGenerate } = require("../../services/generation");
 
 const createAct = async (req, res, next) => {
   try {
-    const { document, job } = await persistAndGenerate({
+    const { document, job, existing } = await persistAndGenerate({
       model: ActDocument,
-
       payload: req.body,
+      clientId: req.clientId,
     });
 
-    res.status(201).json({
+    return res.status(existing ? 200 : 201).json({
       documentId: document._id,
-
       jobId: job._id,
+      existing,
     });
   } catch (error) {
     console.error("Error in controller createAct:", error);

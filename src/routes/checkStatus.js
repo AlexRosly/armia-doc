@@ -1,10 +1,8 @@
 const router = require("express").Router();
 const { check: ctrl } = require("../controllers");
+const { generationEvents: ctrls } = require("../controllers");
 
-// router.post("/create", ctrl.createReport);
 router.get("/generation/:jobId", ctrl.checkStatus);
-// GET /api/generation/:jobId/download/docx - downloadReport
-// router.get("/generation/:jobId/download/docx", ctrl.downloadReport);
-// router.get("/generation/:jobId/download/armdoc", ctrl.downloadArmdocReport);
+router.get("/generation/:jobId/events", ctrls.subscribeGenerationEvents);
 
 module.exports = router;

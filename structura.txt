@@ -162,3 +162,13 @@ src/
 │   ├── pdf/
 │   └── armdoc/
 └── app.js
+
+
+Лучший UX flow на фронте
+Я бы сделал так:
+После create:
+открыть SSE
+сразу же сделать один GET check-status
+если job уже ready, закрыть SSE
+если job processing, слушать SSE
+если SSE error/disconnect → включить polling fallback раз в 5 сек

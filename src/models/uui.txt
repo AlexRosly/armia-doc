@@ -8,654 +8,481 @@
 без S3
 без volume
 
+Ниже — **реально выполнимый roadmap на 3 спринта** с приоритетами, критериями готовности и поэтапной миграцией от текущей disk-oriented схемы к RAM/tmpfs-first.
+
+---
+
+# Цель
+Свести к минимуму попадание чувствительных данных на постоянный диск и сократить окно хранения до **максимум 10 минут**, при этом сохранить работоспособность текущего сервиса.
+
+---
+
+# Спринт 1 — “Быстрое усиление без ломки архитектуры”
+**Задача:** резко поднять безопасность на текущем коде и инфраструктуре, не переписывая генерацию целиком.
+
+## 1) Лимиты и безопасный прием запросов
+- Зафиксировать `MAX_INPUT_SIZE = 1 MiB`
+- Одинаково выставить:
+  - Nginx: `client_max_body_size 1m`
+  - Node/Express JSON parser: `limit: '1mb'`
+  - серверная валидация
+  - при возможности — фронтовая подсказка до отправки
+
+**DoD**
+- Запрос > 1 MiB получает `413`
+- Валидные запросы до 1 MiB проходят
+
+---
+
+## 2) Nginx: не писать request/response на обычный диск
+Для **маршрутов генерации**:
+- `client_body_buffer_size 1m`
+- `proxy_request_buffering off`
+- `proxy_buffering off`
+- `proxy_http_version 1.1`
+- `proxy_max_temp_file_size 0`
+- temp paths Nginx направить в `tmpfs` как страховку
+
+**DoD**
+- Нет temp-файлов Nginx на обычном диске при генерации и скачивании
+- Проверено на запросах ~100KB / 500KB / ~1MB
+
+---
+
+## 3) Безопасное логирование
+- Убрать из логов:
+  - body
+  - response body
+  - все headers целиком
+  - cookies / authorization
+  - query/params с пользовательскими данными
+- Оставить белый список:
+  - `requestId`
+  - method
+  - route
+  - status
+  - duration
+  - response size
+  - technical error code
+- Выключить `X-Powered-By`
+
+**DoD**
+- В логах нет текста пользователя и чувствительных заголовков
+
+---
+
+## 4) Один активный job на пользователя
+- На backend ввести правило:
+  - **1 пользователь = 1 активная работа**
+- Второй запрос в активный период → `409 Conflict`
+- Освобождение после:
+  - early close
+  - ошибки
+  - TTL cleanup
+
+**DoD**
+- Два параллельных запроса одного пользователя не проходят
+
+---
+
+## 5) Общий лимит одновременных генераций
+- Ввести `MAX_CONCURRENT_JOBS`
+- При достижении:
+  - либо короткая ограниченная очередь
+  - либо controlled reject “server busy”
+
+**DoD**
+- При нагрузке сервер не запускает безлимитные генерации
+
+---
+
+## 6) Надежный lifecycle: `expiresAt` — главный
+- Источник правды только backend
+- Frontend лишь показывает остаток времени по `expiresAt`
+- Cleaner по `expiresAt`
+- Cleanup идемпотентный
+- После рестарта cleaner подчищает просроченное
+
+**DoD**
+- Early close удаляет сразу
+- Без close — удаление максимум через 10 минут
+- После рестарта backend просроченные jobs чистятся
+
+---
+
+## 7) Перенести `storage/` в tmpfs
+Не переписывая логику файлов сейчас:
+- `storage/docx`
+- `storage/pdf`
+- `storage/armdoc`
+
+размещаются в RAM-backed FS (`tmpfs`).
+
+**Это ключевой компромиссный шаг**: код почти не меняется, а физически данные уже не лежат на постоянном диске.
+
+**DoD**
+- Документы создаются и скачиваются как раньше
+- Но `storage/*` — в RAM/tmpfs, а не на обычном диске
 
-Нормально и надолго — тогда так.
-
-Backend v2 roadmap
-Этап 1. Очередь задач — фундамент
-Цель: вынести генерацию в устойчивый background pipeline.
-
-Делать
-Поднять Redis
-Взять BullMQ
-Разделить роли:
-API server — принимает запрос, создаёт job
-Worker — обрабатывает генерацию
-Перевести генерацию на очередь:
-create job
-enqueue
-worker processing
-update status in DB
-Статусы job
-Зафиксировать enum:
-
-js
-
-queued
-processing
-rendering_docx
-converting_pdf
-validating_layout
-ready
-failed
-expired
-cleaned
-cancelled
-Поля GenerationJob
-Добавить/нормализовать:
-
-js
-
-status
-step
-progress
-error
-startedAt
-finishedAt
-expiresAt
-attempts
-result
-files
-Пример:
-
-js
-
-{
-  status: "processing",
-  step: "converting_pdf",
-  progress: 60,
-  error: null
-}
-Что менять
-startGeneration → только создаёт job и ставит в очередь
-runGenerationJob → исполняется только worker’ом
-cleanup оставить отдельным scheduler’ом
-generation/update статусов делать централизованно
-Результат этапа
-API отвечает быстро
-генерация не блокирует request lifecycle
-можно ограничивать concurrency
-можно делать retries
-база под масштабирование готова
-Этап 2. Realtime статусы
-Цель: фронт получает живой статус job.
-
-Рекомендация
-Для твоего кейса сначала SSE, не WebSocket.
-
-Почему
-статусы идут только сервер → клиент
-проще реализации и поддержки
-меньше инфраструктурной сложности
-для генерации документов этого обычно достаточно
-Делать
-endpoint:
-GET /jobs/:id/events — SSE stream
-endpoint:
-GET /jobs/:id — текущее состояние
-worker при смене статуса:
-обновляет Mongo
-публикует event
-Источник событий
-2 варианта:
-
-через Redis pub/sub
-через Mongo change streams
-Рекомендую: Redis pub/sub, раз Redis уже будет из-за BullMQ.
-
-События
-js
-
-job:queued
-job:processing
-job:progress
-job:completed
-job:failed
-job:expired
-job:cleaned
-Результат этапа
-фронт видит прогресс в реальном времени
-можно показывать шаги генерации
-можно уведомлять о готовности без polling
-Этап 3. Production hardening
-Цель: сделать систему устойчивой и обслуживаемой.
-
-3.1 Startup checks
-При старте проверять:
-
-Mongo доступен
-Redis доступен
-LibreOffice доступен
-storage папки существуют
-шаблоны существуют
-Если критично — не стартовать worker.
-
-3.2 Единые paths
-Сделать paths.js:
-
-js
-
-PROJECT_ROOT
-STORAGE_ROOT
-DOCX_DIR
-PDF_DIR
-ARMDOC_DIR
-TEMPLATES_DIR
-И убрать process.cwd() из критичных мест.
-
-3.3 Template validation
-На старте валидировать profiles:
-
-все шаблоны существуют
-для order существуют и order, и approval шаблоны
-Если нет — логировать список проблем.
-
-3.4 Structured logging
-Поставить нормальный логгер:
-
-pino или winston
-Минимум логировать:
-
-jobId
-documentType
-status
-step
-duration
-error
-3.5 Retry policy
-На уровне очереди:
-
-retries для временных ошибок
-no retry для конфигурационных ошибок шаблонов
-Разделить типы ошибок:
-
-transient
-permanent
-3.6 Health endpoints
-Добавить:
-
-/health
-/health/db
-/health/redis
-/health/storage
-3.7 Cleanup hardening
-Cleanup должен:
-
-удалять только expired jobs
-помечать cleaned
-логировать failed cleanup
-не удалять job, если файлы не удалились по серьёзной причине
-Технический выбор
-Брать
-BullMQ
-Redis
-SSE
-Pino
-MongoDB оставить как есть
-Не делать сразу
-WebSocket, если нужен только job-status
-свою самописную очередь
-сложную оркестрацию микросервисов
-Минимальная целевая архитектура
-API server
-Отвечает за:
-
-create generation request
-create GenerationJob
-enqueue job
-get job status
-SSE stream
-Worker
-Отвечает за:
-
-runGenerationJob
-generate docx
-convert pdf
-validate layout
-update DB
-publish status events
-Cleanup scheduler
-Отвечает за:
-
-expired jobs
-delete files
-delete source docs
-mark cleaned/delete job
-Redis
-Используется для:
-
-queue
-pub/sub для статусов
-Приоритет задач по порядку
-Спринт 1
-поднять Redis
-подключить BullMQ
-вынести генерацию в worker
-ввести нормальные статусы job
-Спринт 2
-добавить SSE endpoint
-публиковать статусы из worker
-фронт подписать на job events
-Спринт 3
-startup checks
-template validation
-paths.js
-structured logging
-health endpoints
-Что делать первым практически
-Если совсем конкретно:
-
-Шаг 1
-Создать:
-
-src/queue/connection.js
-src/queue/generationQueue.js
-src/workers/generationWorker.js
-Шаг 2
-Переделать startGeneration:
-
-create job in Mongo
-enqueue jobId
-Шаг 3
-Переделать runGenerationJob(jobId):
-
-worker читает Mongo job
-обновляет statuses
-сохраняет files/result/error
-Шаг 4
-Добавить GET /jobs/:id
-
-вернуть status, step, progress, files
-Шаг 5
-Добавить GET /jobs/:id/events
-
-SSE stream статусов
-Мой финальный совет
-Если делаешь “надолго”, то правильный следующий шаг — не WebSocket сам по себе, а BullMQ + Redis + worker separation.
-
-WebSocket/SSE без очереди — косметика.
-Очередь без realtime — уже взрослая архитектура.
-
-Если хочешь, следующим сообщением я могу дать тебе конкретную стартовую структуру папок Backend v2 и список файлов, 
-которые создать первыми под BullMQ/worker/SSE.
-
-///////////////////////////////
-SECURE
-///////////////////////////////
-Да — тут ошибка не в cleanup-логике удаления файлов, а в сетевом доступе к MongoDB Atlas.
-
-Что означает ошибка
-Главное:
-txt
-
-MongoServerSelectionError: getaddrinfo ENOTFOUND ac-xb3mtux-shard-00-00.rw9q9iq.mongodb.net
-Это значит:
-
-Node.js не смог через DNS разрешить hostname Mongo Atlas.
-
-То есть проблема в одном из:
-
-интернет / сеть
-DNS
-VPN / proxy
-временный сбой Atlas/DNS
-локальный firewall / антивирус
-нестабильное соединение
-А ECONNABORTED здесь вторично
-Вот это:
-
-txt
-
-Error: write ECONNABORTED
-обычно уже следствие того, что соединение с Mongo порвалось.
-
-То есть sequence примерно такой:
-
-cleanupScheduler пытается сходить в Mongo
-DNS/сеть ломается
-драйвер не может выбрать сервер
-сокет рвётся
-ты видишь ECONNABORTED
-Ключевая причина именно тут
-txt
-
-getaddrinfo ENOTFOUND ...mongodb.net
-ENOTFOUND = hostname не найден.
-
-Это не связано с:
-tmpfs
-storage
-templates
-путями
-act profiles
-Это отдельно сетевая проблема.
-
-Что проверить прямо сейчас
-1. Интернет и DNS
-Попробуй в терминале:
-
-bash
-
-nslookup ac-xb3mtux-shard-00-00.rw9q9iq.mongodb.net
-Если не резолвится — проблема подтверждается.
-
-2. Доступен ли Atlas вообще
-Попробуй:
-
-bash
-
-ping google.com
-nslookup google.com
-Если Google резолвится, а Mongo-хост нет — возможно:
-
-DNS странно режет домен
-корпоративная сеть
-провайдер
-VPN
-3. VPN / прокси / антивирус
-Очень часто мешают:
-
-AdGuard
-антивирус с HTTPS inspection
-VPN
-корпоративный proxy
-локальный firewall
-4. Mongo Atlas Network Access
-Проверь в Atlas:
-
-твой IP разрешён?
-если IP dynamic, он мог измениться
-Но важный момент:
-если бы проблема была только в whitelist IP, обычно был бы не ENOTFOUND, а уже ошибка авторизации/доступа.
-Так что сейчас больше похоже именно на DNS/network.
-
-5. Строку подключения
-Проверь MONGO_URI.
-Если в hostname опечатка — будет то же самое.
-
-Почему cleanupScheduler так шумит
-Судя по логам, scheduler запускается по таймеру и на каждом тике делает запрос в Mongo.
-Когда Mongo недоступна, он каждый раз логирует full stack trace.
-
-Это норм в dev, но в проде лучше сделать мягче.
-
-Что я бы улучшил в cleanupScheduler
-1. Не падать, а логировать кратко
-2. Добавить защиту от overlapping runs
-3. Добавить backoff / cooldown при Mongo network errors
-Пример улучшенного scheduler
-Вот аккуратная версия:
-
-js
-
-let isCleanupRunning = false;
-let mongoFailureCount = 0;
-
-const isMongoNetworkError = (error) => {
-  const message = error?.message || "";
-  const code = error?.code || "";
-  const causeCode = error?.cause?.code || "";
-
-  return (
-    code === "ECONNABORTED" ||
-    message.includes("MongoServerSelectionError") ||
-    message.includes("ENOTFOUND") ||
-    causeCode === "ENOTFOUND"
-  );
-};
-
-const runCleanupSafely = async () => {
-  if (isCleanupRunning) {
-    console.warn("[cleanupScheduler] skip: previous cleanup still running");
-    return;
-  }
-
-  isCleanupRunning = true;
-
-  try {
-    await cleanupExpiredJobs();
-    mongoFailureCount = 0;
-  } catch (error) {
-    if (isMongoNetworkError(error)) {
-      mongoFailureCount += 1;
-      console.warn(
-        `[cleanupScheduler] Mongo temporarily unavailable (${mongoFailureCount}): ${error.message}`,
-      );
-    } else {
-      console.error("[cleanupScheduler] cleanup error:", error);
-    }
-  } finally {
-    isCleanupRunning = false;
-  }
-};
-Теперь про твой запрос: безболезненный план миграции на tmpfs workspace
-Я дам именно эволюционный план, чтобы не сломать текущую генерацию и cleanup.
-
-Цель миграции
-Не переписать весь проект сразу, а перейти от:
-
-text
-
-storage/docx
-storage/pdf
-storage/armdoc
-к модели:
-
-text
-
-tmpfs workspace per job
-при этом:
-
-текущая генерация продолжает работать
-cleanup продолжает работать
-можно откатиться
-План миграции на tmpfs workspace
-Этап 1. Ввести job workspace, но без отказа от storage
-Цель: добавить временную рабочую папку на job, не ломая текущий пайплайн.
-
-Что сделать
-Добавить helper путей:
-
-js
-
-getJobWorkspace(jobId)
-getJobDocxPath(jobId)
-getJobPdfPath(jobId)
-getJobArmdocPath(jobId)
-Например:
-
-js
-
-/tmp/armia-doc/job-<id>/
-  docx/
-  pdf/
-  armdoc/
-или проще:
-
-js
-
-/tmp/armia-doc/job-<id>/
-  result.docx
-  result.pdf
-  result.armdoc
-Пока что:
-генерация идёт в workspace
-после успеха файлы копируются в старый storage/
-cleanup удаляет и workspace, и storage
-Что это даёт
-ты уже тестируешь tmpfs
-старый контракт по job.files не ломается
-скачивание и cleanup продолжают жить как раньше
-Этап 2. Cleanup научить удалять workspace
-Цель: cleanup работает с двумя слоями:
-
-старый storage
-новый workspace
-Что добавить
-В job можно сохранить:
-
-js
-
-workspaceDir: "/tmp/armia-doc/job-<id>"
-или вычислять по job._id.
-
-Cleanup:
-
-удаляет persistent файлы из storage
-удаляет workspace directory рекурсивно
-Если workspace уже нет — не ошибка.
-
-Этап 3. Конвертация и layout validation полностью перевести на workspace
-Цель: весь промежуточный pipeline живёт только во временной папке.
-
-Тогда:
-generateDocx пишет в workspace
-convertToPdf берёт docx из workspace
-validateLayout читает pdf из workspace
-После успеха:
-либо копируешь финальные файлы в storage
-либо сразу отдаёшь клиенту и ничего не сохраняешь
-Этап 4. Решить судьбу persistent storage
-Тут уже два режима.
-
-Режим A — совместимый
-Оставляешь storage/ для финальных файлов.
-Это безопасный переход.
-
-Режим B — strict tmpfs
-Финальные файлы тоже только в workspace/tmpfs, и после TTL исчезают.
-Но это уже следующий шаг, не первый.
-
-Как сделать это безболезненно в коде
-Шаг 1. Ввести единый path-helper
-Сделай модуль, например:
-
-js
-
-// src/utils/paths.js
-const path = require("path");
-const os = require("os");
-
-const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const STORAGE_ROOT = path.join(PROJECT_ROOT, "storage");
-const TMP_ROOT = path.join(os.tmpdir(), "armia-doc");
-
-const getJobWorkspaceDir = (jobId) => path.join(TMP_ROOT, `job-${jobId}`);
-
-const getJobWorkspaceFile = (jobId, fileName) =>
-  path.join(getJobWorkspaceDir(jobId), fileName);
-
-module.exports = {
-  PROJECT_ROOT,
-  STORAGE_ROOT,
-  TMP_ROOT,
-  getJobWorkspaceDir,
-  getJobWorkspaceFile,
-};
-Шаг 2. Перед генерацией создавать workspace
-Например:
-
-js
-
-const fs = require("fs/promises");
-const { getJobWorkspaceDir } = require("../utils/paths");
-
-const ensureJobWorkspace = async (jobId) => {
-  const dir = getJobWorkspaceDir(jobId);
-  await fs.mkdir(dir, { recursive: true });
-  return dir;
-};
-Шаг 3. runProfiles перевести на workspace path
-Вместо:
-
-js
-
-const buildDocxPath = (job) =>
-  path.join(process.cwd(), "storage", "docx", `${job._id}.docx`);
-
-const buildPdfDir = () =>
-  path.join(process.cwd(), "storage", "pdf");
-сделать временно так:
-
-js
-
-const path = require("path");
-const fs = require("fs/promises");
-const {
-  getJobWorkspaceDir,
-  STORAGE_ROOT,
-} = require("../../utils/paths");
-
-const buildWorkspaceDocxPath = (job) =>
-  path.join(getJobWorkspaceDir(job._id), `${job._id}.docx`);
-
-const buildWorkspacePdfDir = (job) =>
-  getJobWorkspaceDir(job._id);
-Потому что pdf может лежать прямо рядом.
-
-Шаг 4. После успешной генерации копировать в storage
-Например:
-
-js
-
-const copyFinalArtifactsToStorage = async (job, workspaceDocxPath, workspacePdfPath) => {
-  const docxStoragePath = path.join(STORAGE_ROOT, "docx", `${job._id}.docx`);
-  const pdfStoragePath = path.join(STORAGE_ROOT, "pdf", `${job._id}.pdf`);
-
-  await fs.copyFile(workspaceDocxPath, docxStoragePath);
-  await fs.copyFile(workspacePdfPath, pdfStoragePath);
-
-  return {
-    docx: `${job._id}.docx`,
-    pdf: `${job._id}.pdf`,
-  };
-};
-Шаг 5. Cleanup расширить
-Кроме удаления storage/... добавить:
-
-js
-
-await fs.rm(getJobWorkspaceDir(job._id), {
-  recursive: true,
-  force: true,
-});
-force: true — хорошо для tmp cleanup.
-
-Почему это безболезненно
-Потому что:
-
-фронт ничего не замечает
-job.files остаётся тем же
-старый download flow не ломается
-cleanup просто становится умнее
-можно откатить в любой момент
-Что важно учесть для Windows
-Ты сейчас, судя по логам, работаешь на Windows:
-
-txt
-
-C:\Users\Александр\Documents\GitHub\armia-doc
-tmpfs как Linux tmpfs на Windows нет в том же виде.
-
-Что это значит:
-На локальной Windows-разработке ты сможешь использовать:
-
-js
-
-os.tmpdir()
-но это будет просто системная temp-директория, не RAM tmpfs.
-
-Реальный tmpfs only будет актуален:
-на Linux сервере
-в Docker/Kubernetes с tmpfs mount
-в WSL/Linux VM
-То есть сейчас можно сделать архитектуру под tmp workspace, а “настоящий tmpfs” включить уже на сервере.
-
-{
-  "text": "3.       Начальнику речової служби тилу логістики військової частини А8888 та начальнику фінансово-економічної служби – головному бухгалтеру військової частини А8888 внести втрати (нестачі) до книг обліку втрат військового майна у відповідній службі матеріального забезпечення та до книги обліку нестач військової частини у фінансово-економічній службі, а саме:",
-  "services": [
-                { "item": "за номенклатурою ваиваиваи:" },
-                { "item": "майно ваиваиваиваи:" },
-                { "item": "ваиваиваи – 56756 шт, загальною залишковою вартістю 5 657 657 грн." }
-              ]
-},            
+---
+
+## 8) Проверить PDF-конвертер
+- Проверить `convertToPdf(...)`
+- Выявить, пишет ли он:
+  - temp files
+  - user profile
+  - `/tmp`
+  - служебные артефакты
+- Если пишет — тоже перевести temp path в tmpfs
+
+**DoD**
+- Понятна карта временных файлов PDF-конвертера
+- Все временные каталоги либо отключены, либо RAM-backed
+
+---
+
+## 9) Swap / dumps / snapshots
+- Отключить или зашифровать swap
+- Выключить core dumps
+- Запретить heap snapshots / diagnostic reports в production
+- Проверить PM2/systemd, чтобы не писали дампы с памятью
+
+**DoD**
+- Нет штатных memory dumps на постоянном диске
+
+---
+
+## 10) Read-only код и минимальные права
+- backend не под root
+- код и шаблоны read-only
+- приложению разрешена запись только туда, где реально нужно (tmpfs)
+
+**DoD**
+- Процесс приложения не может менять собственный код и шаблоны
+
+---
+
+## 11) Egress deny
+- Если backend не нужен внешний интернет:
+  - запретить исходящие соединения по умолчанию
+  - разрешить только Mongo/локальные внутренние сервисы при необходимости
+
+**DoD**
+- Тестовая попытка отправить данные наружу из backend блокируется
+
+---
+
+## 12) Базовый FIM/monitoring
+- Вынести FIM/monitoring на внешний узел, если возможно
+- Начать контролировать:
+  - backend
+  - frontend
+  - шаблоны
+  - nginx config
+  - env/config
+  - package-lock
+  - systemd/pm2
+
+**DoD**
+- Изменение тестового файла вызывает alert
+
+---
+
+## Результат спринта 1
+Без сильной ломки кода вы получите:
+- безопаснее логирование
+- жесткие лимиты
+- cleaner/TTL
+- tmpfs вместо диска
+- контроль конкуренции
+- read-only код
+- egress deny
+- базовый FIM
+
+Это уже **сильно более защищенная система**.
+
+---
+
+# Спринт 2 — “Изоляция и отказоустойчивость”
+**Задача:** уменьшить blast radius и подготовить архитектуру к более строгой модели.
+
+## 1) Разделить роли по сервисам
+Минимально:
+- frontend отдельно
+- backend/generation отдельно
+- Mongo отдельно
+- monitoring/FIM отдельно
+
+Если пока один хост:
+- хотя бы отдельные контейнеры/сервисы
+- разные пользователи/права
+- разные network policies
+
+**DoD**
+- Компрометация фронта не даёт автоматически запись в backend storage/code
+
+---
+
+## 2) Linux-first окружение
+Если production не на Linux — запланировать миграцию.  
+Для этой security-модели Linux удобнее:
+- tmpfs
+- read-only mounts
+- firewall rules
+- container hardening
+- no-new-privileges
+- seccomp/apparmor
+
+**DoD**
+- Целевая production-платформа — Linux
+
+---
+
+## 3) Контейнеризация backend
+- read-only root filesystem
+- отдельный `tmpfs` mount для временных данных
+- ограничение RAM/CPU
+- `no-new-privileges`
+- drop capabilities
+
+**DoD**
+- Backend живет в ограниченном runtime-контуре
+
+---
+
+## 4) Разделение frontend и backend по доступу
+Идея:
+- frontend можно держать как static build
+- backend — private service за reverse proxy
+- Mongo — вообще не публичная
+
+**DoD**
+- Только edge/proxy смотрит в интернет
+- Backend и DB не exposed публично напрямую
+
+---
+
+## 5) Внешний heartbeat и независимые алерты
+- Если FIM/agent перестал слать heartbeat — это тоже alert
+- Алерты не должны зависеть от того же сервера, который мониторят
+
+**DoD**
+- Остановка агента или loss of heartbeat видны снаружи
+
+---
+
+## 6) DR/HA базового уровня
+Если текущий сервер “умирает по тех. причинам”:
+- frontend не должен падать обязательно вместе с generation backend
+- backup/standby планы:
+  - отдельный backend node
+  - отдельный Mongo
+  - внешний reverse proxy/LB при необходимости
+
+**DoD**
+- Есть понятный план восстановления при падении текущего сервера
+
+---
+
+## Результат спринта 2
+Вы получаете:
+- лучшую изоляцию
+- меньше общих точек отказа
+- более безопасное окружение для backend
+- основу для дальнейшего ухода от persistence sensitive data
+
+---
+
+# Спринт 3 — “Убрать чувствительный payload из постоянного хранилища”
+**Задача:** приблизиться к настоящей модели “не писать пользовательский текст на постоянный диск вообще”.
+
+Это уже самый серьезный рефакторинг.
+
+## 1) Разделить metadata и sensitive payload
+### В БД оставить только metadata:
+- jobId
+- userId
+- type
+- status
+- createdAt
+- expiresAt
+- errorCode
+- maybe file sizes / technical flags
+
+### Пользовательский текст хранить только ephemeral:
+- process memory
+- tmpfs
+- Redis with TTL (если подходит)
+- другой RAM-backed store
+
+**DoD**
+- Полный пользовательский текст больше не пишется в постоянную Mongo-модель
+
+---
+
+## 2) Переделать `persistAndGenerate`
+Сейчас у вас логика завязана на `model.create([payload])`.
+
+Нужно перейти к модели:
+- persistent metadata job
+- ephemeral payload storage
+- генератор получает payload из ephemeral store
+- после генерации payload удаляется сразу или живет только в пределах TTL
+
+**DoD**
+- `persistAndGenerate` больше не создает persistent document record с полным текстом
+
+---
+
+## 3) Перевести generation flow на memory-first
+По возможности:
+- generate DOCX в Buffer/stream
+- PDF в RAM/tmpfs
+- download из RAM/tmpfs
+- по TTL/close — cleanup
+
+Если какая-то библиотека требует filesystem:
+- оставить только tmpfs, не обычный диск
+
+**DoD**
+- Постоянный диск не используется для пользовательских данных и документов
+
+---
+
+## 4) Убрать долгоживущие артефакты
+- никаких JSON snapshots
+- никаких debug DOCX
+- никаких “на всякий случай” сохранений результата в БД/диск
+
+**DoD**
+- После cleanup не остается чувствительных артефактов в app storage и БД
+
+---
+
+## 5) Полный security review
+После рефакторинга провести повторный аудит:
+- request path
+- memory path
+- temp dirs
+- DB traces
+- logs
+- backup policy
+- restore policy
+- incident response
+
+**DoD**
+- Есть подтверждение, что чувствительные данные не попадают в persistent layers
+
+---
+
+## Результат спринта 3
+Это уже почти целевая модель:
+- metadata можно хранить
+- пользовательский текст и документы — только RAM/tmpfs
+- cleanup строго по TTL/close
+- persistent storage не содержит исходный текст
+
+---
+
+# Что критично обязательно, а что можно позже
+
+## Обязательно в первую очередь
+1. Лимит 1 MiB
+2. Nginx buffering config
+3. Безопасные логи
+4. `expiresAt` + cleaner + early close
+5. Один активный job на пользователя
+6. `MAX_CONCURRENT_JOBS`
+7. `storage/*` в tmpfs
+8. Проверка PDF temp files
+9. swap/core dump controls
+10. read-only code/templates
+11. no-root + egress deny
+
+## Очень желательно во втором шаге
+1. Внешний FIM
+2. Разделение frontend/backend/DB
+3. Linux/container hardening
+4. Внешний heartbeat
+
+## Серьезный рефакторинг
+1. Убрать payload из Mongo
+2. Переделать `persistAndGenerate`
+3. Перейти на metadata + ephemeral payload
+4. Memory-first generation flow
+
+---
+
+# Реалистичная оценка по вашей текущей архитектуре
+
+## Можно сделать быстро:
+- спринт 1 почти целиком
+- часть спринта 2
+
+## Потребует архитектурной переработки:
+- спринт 3
+
+Причина простая:
+сейчас у вас генерация и lifecycle уже организованы неплохо, но они построены вокруг:
+- файлов в `storage/*`
+- job metadata в БД
+- вероятно, payload-документов в моделях Mongo
+
+То есть до “строго RAM-only” путь есть, но он не в один шаг.
+
+---
+
+# Что делать, если фронт и бэк сейчас на одном сервере
+На ближайшем этапе это не блокер.
+
+## Минимальный разумный план:
+- оставить пока один сервер
+- но логически/контейнерно разделить:
+  - frontend
+  - backend
+  - db
+  - monitoring
+- backend максимально зажать по правам и сети
+
+## Потом:
+- frontend вынести отдельно
+- backend generation вынести отдельно
+- monitoring/FIM вынести отдельно
+- БД держать отдельно и приватно
+
+---
+
+# Если сервер упадет “по тех. причинам”
+## Да, разделение поможет.
+Особенно если сделать так:
+- frontend отдельно
+- backend отдельно
+- database отдельно
+
+Тогда падение одного узла не обязательно роняет всё сразу.
+
+Но это уже больше про **availability/operability**, чем про RAM-only security.
+
+---
+
+# Критерии успеха по завершению roadmap
+
+## После спринта 1
+- Нет чувствительных логов
+- Нет хранения на обычном диске в app storage
+- Есть TTL 10 минут и early delete
+- Есть лимиты и concurrency control
+- Есть egress deny и read-only код
+
+## После спринта 2
+- Сервисы лучше изолированы
+- Monitoring/FIM независим
+- Есть базовая отказоустойчивость
+
+## После спринта 3
+- Пользовательский текст не попадает в постоянную БД
+- Документы не попадают на постоянный диск
+- metadata и sensitive payload разделены
+- система действительно близка к RAM-only модели
+
+---

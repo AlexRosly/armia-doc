@@ -1,7 +1,8 @@
 const router = require("express").Router();
 const { act: ctrl } = require("../controllers");
+const { requestSizeLogger } = require("../middelwares");
 
-router.post("/create", ctrl.createAct);
+router.post("/create", requestSizeLogger, ctrl.createAct);
 // router.get("/generation/:jobId", ctrl.checkStatusReport);
 // GET /api/generation/:jobId/download/docx - downloadReport
 // router.get("/generation/:jobId/download/docx", ctrl.downloadReport);

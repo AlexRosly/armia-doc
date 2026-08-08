@@ -5,6 +5,7 @@ const check = require("./checkStatus");
 const download = require("./download");
 const importDoc = require("./import");
 const generation = require("./generation");
+const generationEvents = require("./generationEvents");
 
 module.exports = {
   report,
@@ -14,4 +15,5 @@ module.exports = {
   importDoc,
   generation,
   check,
+  generationEvents,
 };
