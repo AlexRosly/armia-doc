@@ -27,8 +27,8 @@ const ensureClientId = (req, res, next) => {
 
     res.cookie(COOKIE_NAME, clientId, {
       httpOnly: true,
-      sameSite: "lax",
-      secure: false,
+      sameSite: "none",
+      secure: true,
       path: "/",
       maxAge: ONE_YEAR_MS,
     });

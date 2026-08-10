@@ -582,7 +582,40 @@ const { convertToPdf } = require("../pdf");
 const validateLayout = require("./validateLayout");
 const documents = require("../documents");
 const order = require("../documents/order");
+///////////////////
+const PizZip = require("pizzip");
 
+const inspectDocxBuffer = (buffer, label) => {
+  const zip = new PizZip(buffer);
+  const names = Object.keys(zip.files).sort();
+
+  const headers = names.filter((n) => /^word\/header\d+\.xml$/.test(n));
+  const footers = names.filter((n) => /^word\/footer\d+\.xml$/.test(n));
+
+  const documentXml = zip.file("word/document.xml")?.asText() || "";
+  const relsXml = zip.file("word/_rels/document.xml.rels")?.asText() || "";
+
+  console.log(`\n===== ${label} =====`);
+  console.log("headers:", headers.length ? headers : "NONE");
+  console.log("footers:", footers.length ? footers : "NONE");
+  console.log(
+    "header refs in document.xml:",
+    (documentXml.match(/<w:headerReference\b/g) || []).length,
+  );
+  console.log(
+    "footer refs in document.xml:",
+    (documentXml.match(/<w:footerReference\b/g) || []).length,
+  );
+  console.log(
+    "header rels in document.xml.rels:",
+    (relsXml.match(/relationships\/header/g) || []).length,
+  );
+  console.log(
+    "footer rels in document.xml.rels:",
+    (relsXml.match(/relationships\/footer/g) || []).length,
+  );
+};
+/////////////////////////
 const buildPayload = (report) => ({
   ...report.toObject(),
   documentType: report.documentType,

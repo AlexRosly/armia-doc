@@ -30,6 +30,9 @@ src/
 │   ├── generation/
 │   │   ├── createGeneration.js
 │   │   └── index.js
+│   ├── generationEvents/
+│   │   ├── subscribeGenerationEvents.js
+│   │   └── index.js
 │   ├── import
 │   │   ├── importArmdoc.js
 │   │   ├── openArmdoc.js
@@ -42,6 +45,8 @@ src/
 │   │   └── index.js
 │   └── index.js
 ├── middelwares/
+│   ├── ensureClientId.js
+│   ├── requestSizeLogger.js
 │   ├── errorMiddelware.js
 │   ├── uploadArmdoc.js
 │   └── index.js
@@ -99,13 +104,27 @@ src/
 │   │      │   ├── templates/
 │   │      │   │     ├── order/
 │   │      │   │     └── approval/
+│   │      │   ├── assembleOrderPrintPdf.js
 │   │      │   ├── buildPropertyGroups.js
-│   │      │   ├── buildTemplateDataOrder.js
 │   │      │   ├── buildTemplateDataApproval.js
-│   │      │   ├── profiles.js
+│   │      │   ├── buildTemplateDataOrder.js
+│   │      │   ├── generate.js
 │   │      │   ├── generateApprovalOnlyDocument.js
+│   │      │   ├── generateOrderBlankPageBuffer.js
 │   │      │   ├── generateOrderOnlyDocument.js
+│   │      │   ├── orderPrintErrors.js
+│   │      │   ├── orderPrintMath.js
+│   │      │   ├── orderPrintSetttings.js
+│   │      │   ├── prepareOrderPrintDocument.js
+│   │      │   ├── profiles.js
 │   │      │   ├── resolveProfilesPair.js
+│   │      │   ├── safeUnlink.js
+│   │      │   ├── validateAssembledOrderPrintPdf.js
+│   │      │   ├── validateGeneratedOrderDocument.js
+│   │      │   ├── validateOrderApprovalPageCount.js
+│   │      │   ├── validateOrderBlankPageDocument.js
+│   │      │   ├── validateOrderFinalPrintContract.js
+│   │      │   ├── validateOrderPrintSettings.js
 │   │      │   └── index.js
 │   │      ├── report/
 │   │      │   ├── templates/
@@ -126,17 +145,26 @@ src/
 │   │   ├── generateDocx.js
 │   │   └── index.js
 │   ├── generation/
+│   │   ├── assertGenerationJobOwnership.js
+│   │   ├── buildGenerationJobPayload.js
+│   │   ├── constants.js
 │   │   ├── createGenerationJob.js
 │   │   ├── deleteGenerationJob.js
+│   │   ├── findActiveGenerationJobByClientId.js
 │   │   ├── persistAndGenerate.js
 │   │   ├── runGeneration.js
 │   │   ├── startGeneration.js
 │   │   └── index.js
+│   ├── generationEvents/
+│   │   ├── publisher.js
+│   │   ├── registry.js
+│   │   ├── subscriber.js
+│   │   └── index.js
 │   ├── layout/
 │   │   ├── validators
-│   │   │        ├──common.js
-│   │   │        ├──order.js
-│   │   │        ├──report.js
+│   │   │        ├── common.js
+│   │   │        ├── order.js
+│   │   │        ├── report.js
 │   │   │        └── index.js
 │   │   ├── bestEffortSelector.js
 │   │   ├── profiles.js
