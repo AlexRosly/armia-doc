@@ -919,9 +919,322 @@
 // };
 
 // module.exports = runProfiles;
+// const path = require("path");
+// const { generateDocx } = require("../docx");
+// const { convertToPdf } = require("../pdf");
+// const validateLayout = require("./validateLayout");
+// const bestEffortSelector = require("./bestEffortSelector");
+// const documents = require("../documents");
+
+// const DEBUG_REPORT_LAYOUT = process.env.REPORT_LAYOUT_DEBUG === "1";
+
+// const ACCEPTABLE_HARD_VIOLATION_CODES = new Set([
+//   "PROSHU_LAST_LINE",
+//   "PROSHU_NOT_ENOUGH_LINES_AFTER",
+// ]);
+
+// const MAX_ACCEPTABLE_MARGIN_VIOLATIONS = Number(
+//   process.env.MAX_ACCEPTABLE_MARGIN_VIOLATIONS || 3,
+// );
+
+// const buildPayload = (report) => ({
+//   ...report.toObject(),
+//   documentType: report.documentType,
+//   templateType: report.templateType,
+// });
+
+// const buildDocxPath = (job) =>
+//   path.join(process.cwd(), "storage", "docx", `${job._id}_report.docx`);
+
+// const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
+
+// const buildPdfPath = (docxPath, pdfDir) =>
+//   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
+
+// const formatSignerDate = (value) => {
+//   if (!value) return "";
+//   const date = new Date(value);
+//   if (Number.isNaN(date.getTime())) return "";
+
+//   return date.toLocaleDateString("uk-UA", {
+//     day: "2-digit",
+//     month: "2-digit",
+//     year: "numeric",
+//   });
+// };
+
+// const getActProfilesByTemplateType = (documentConfig, templateType) => {
+//   const profilesByType = documentConfig.profiles || {};
+
+//   if (!templateType) {
+//     throw new Error("templateType is required for act generation");
+//   }
+
+//   const profiles = profilesByType[templateType];
+//   if (!profiles || !profiles.length) {
+//     throw new Error(
+//       `No act profiles configured for templateType: ${templateType}`,
+//     );
+//   }
+
+//   return profiles;
+// };
+
+// const getProfileCandidates = (report, documentConfig) => {
+//   const { documentType, templateType } = report;
+
+//   if (documentType === "order") {
+//     throw new Error("runProfiles should not be used for order generation");
+//   }
+
+//   if (documentType === "act") {
+//     const profiles = getActProfilesByTemplateType(documentConfig, templateType);
+//     return profiles.map((profile) => ({
+//       profileName: profile.name,
+//       profile,
+//     }));
+//   }
+
+//   const profiles = documentConfig.profiles || [];
+//   return profiles.map((profile) => ({
+//     profileName: profile.name,
+//     profile,
+//   }));
+// };
+
+// const buildValidationContext = (payload) => {
+//   if (payload.documentType === "report") {
+//     const signer = payload.data?.signer || {};
+
+//     return {
+//       documentType: "report",
+//       markers: {
+//         proshu: "ПРОШУ:",
+//         foundationPhrase: "На підставі вищезазначеного,",
+//         signerPosition: signer.position,
+//         signerMilitaryUnit: signer.militaryUnit,
+//         signerRank: signer.rank,
+//         signerFullName: signer.fullName,
+//         signerDate: signer.date,
+//         signerDateFormatted: formatSignerDate(signer.date),
+//       },
+//     };
+//   }
+
+//   if (payload.documentType === "order") {
+//     const signer = payload.data?.signer || {};
+
+//     return {
+//       documentType: "order",
+//       markers: {
+//         nakazuiu: "НАКАЗУЮ:",
+//         signerPosition: signer.position,
+//         signerRank: signer.rank,
+//         signerFirstName: signer.firstName,
+//         signerLastName: signer.lastName,
+//       },
+//     };
+//   }
+
+//   return {
+//     documentType: payload.documentType,
+//     markers: {},
+//   };
+// };
+
+// const isAcceptableBestEffort = (result) => {
+//   const hardViolations = result.hardViolations || [];
+//   const marginViolations = result.marginViolations || [];
+
+//   const hasOnlyAcceptableHardViolations = hardViolations.every((violation) =>
+//     ACCEPTABLE_HARD_VIOLATION_CODES.has(violation.code),
+//   );
+
+//   if (!hasOnlyAcceptableHardViolations) {
+//     return false;
+//   }
+
+//   if (marginViolations.length > MAX_ACCEPTABLE_MARGIN_VIOLATIONS) {
+//     return false;
+//   }
+
+//   return true;
+// };
+
+// const evaluateCandidate = async ({
+//   payload,
+//   docxPath,
+//   pdfDir,
+//   profile,
+//   profileName,
+// }) => {
+//   const candidateStartedAt = Date.now();
+
+//   try {
+//     if (DEBUG_REPORT_LAYOUT) {
+//       console.log(`[runProfiles] candidate-start profile=${profileName}`);
+//     }
+
+//     const docxStartedAt = Date.now();
+//     await generateDocx(payload, docxPath, profile);
+
+//     const pdfStartedAt = Date.now();
+//     await convertToPdf(docxPath, pdfDir);
+
+//     const pdfPath = buildPdfPath(docxPath, pdfDir);
+//     const validationContext = buildValidationContext(payload);
+
+//     const validateStartedAt = Date.now();
+//     const layout = await validateLayout(pdfPath, validationContext);
+
+//     if (DEBUG_REPORT_LAYOUT) {
+//       console.log(
+//         `[runProfiles] candidate-timings profile=${profileName} docxMs=${pdfStartedAt - docxStartedAt} pdfMs=${validateStartedAt - pdfStartedAt} validateMs=${Date.now() - validateStartedAt} totalMs=${Date.now() - candidateStartedAt}`,
+//       );
+
+//       console.log(
+//         `[runProfiles] candidate-summary profile=${profileName} passed=${layout.passed} hard=${layout.hardViolations.length} margin=${layout.marginViolations.length}`,
+//       );
+
+//       console.log(
+//         `[runProfiles] candidate-hard-codes profile=${profileName} codes=${JSON.stringify(layout.hardViolations.map((v) => v.code))}`,
+//       );
+//     }
+
+//     return {
+//       ok: true,
+//       profile: profileName,
+//       pages: layout.pages,
+//       hardViolations: layout.hardViolations,
+//       marginViolations: layout.marginViolations,
+//       hasLayoutError: !layout.passed,
+//       docxPath,
+//       pdfPath,
+//     };
+//   } catch (error) {
+//     console.error(`[runProfiles] candidate-failed profile=${profileName}`);
+//     console.error(error.message);
+
+//     return {
+//       ok: false,
+//       profile: profileName,
+//       pages: [],
+//       hardViolations: [],
+//       marginViolations: [],
+//       hasLayoutError: true,
+//       error: error.message,
+//       docxPath,
+//       pdfPath: buildPdfPath(docxPath, pdfDir),
+//     };
+//   }
+// };
+
+// const runProfiles = async (report, job) => {
+//   const startedAt = Date.now();
+
+//   const documentType = report.documentType;
+//   const documentConfig = documents[documentType];
+
+//   if (!documentConfig) {
+//     throw new Error(`Document config not found for type: ${documentType}`);
+//   }
+
+//   const payload = buildPayload(report);
+//   const docxPath = buildDocxPath(job);
+//   const pdfDir = buildPdfDir();
+//   const candidates = getProfileCandidates(report, documentConfig);
+
+//   console.log(
+//     `[runProfiles] start job=${job._id} documentType=${documentType} candidates=${candidates.length}`,
+//   );
+
+//   if (!candidates.length) {
+//     throw new Error(
+//       `No profiles configured for document type: ${documentType}`,
+//     );
+//   }
+
+//   const failedButGeneratedResults = [];
+
+//   for (const candidate of candidates) {
+//     const result = await evaluateCandidate({
+//       payload,
+//       docxPath,
+//       pdfDir,
+//       profile: candidate.profile,
+//       profileName: candidate.profileName,
+//     });
+
+//     if (!result.ok) {
+//       continue;
+//     }
+
+//     if (!result.hasLayoutError) {
+//       console.log(
+//         `[runProfiles] passed job=${job._id} profile=${result.profile} totalMs=${Date.now() - startedAt}`,
+//       );
+
+//       return {
+//         status: "passed",
+//         profile: result.profile,
+//         pages: result.pages,
+//         hardViolations: result.hardViolations,
+//         marginViolations: result.marginViolations,
+//         docxPath: result.docxPath,
+//         pdfPath: result.pdfPath,
+//       };
+//     }
+
+//     if (isAcceptableBestEffort(result)) {
+//       console.log(
+//         `[runProfiles] acceptable-best-effort job=${job._id} profile=${result.profile} hard=${result.hardViolations.length} margin=${result.marginViolations.length} totalMs=${Date.now() - startedAt}`,
+//       );
+
+//       return {
+//         status: "best_effort",
+//         profile: result.profile,
+//         pages: result.pages,
+//         hardViolations: result.hardViolations,
+//         marginViolations: result.marginViolations,
+//         docxPath: result.docxPath,
+//         pdfPath: result.pdfPath,
+//       };
+//     }
+
+//     if (DEBUG_REPORT_LAYOUT) {
+//       console.log(
+//         `[runProfiles] rejected profile=${result.profile} hard=${result.hardViolations.length} margin=${result.marginViolations.length}`,
+//       );
+//     }
+
+//     failedButGeneratedResults.push({
+//       status: "best_effort",
+//       profile: result.profile,
+//       pages: result.pages,
+//       hardViolations: result.hardViolations,
+//       marginViolations: result.marginViolations,
+//       docxPath: result.docxPath,
+//       pdfPath: result.pdfPath,
+//     });
+//   }
+
+//   if (failedButGeneratedResults.length) {
+//     console.log(
+//       `[runProfiles] best-effort-selected job=${job._id} totalMs=${Date.now() - startedAt}`,
+//     );
+
+//     return bestEffortSelector(failedButGeneratedResults);
+//   }
+
+//   throw new Error(`No valid ${documentType} profile could be generated`);
+// };
+
+// module.exports = runProfiles;
+const fs = require("fs/promises");
 const path = require("path");
 const { generateDocx } = require("../docx");
 const { convertToPdf } = require("../pdf");
+const { applyDocumentPaginationFixes } = require("../word");
 const validateLayout = require("./validateLayout");
 const bestEffortSelector = require("./bestEffortSelector");
 const documents = require("../documents");
@@ -950,6 +1263,17 @@ const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
 
 const buildPdfPath = (docxPath, pdfDir) =>
   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
+
+const cleanupFileIfExists = async (filePath) => {
+  try {
+    await fs.unlink(filePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.warn(`[runProfiles] cleanup failed: ${filePath}`);
+      console.warn(error.message);
+    }
+  }
+};
 
 const formatSignerDate = (value) => {
   if (!value) return "";
@@ -1078,10 +1402,23 @@ const evaluateCandidate = async ({
     const docxStartedAt = Date.now();
     await generateDocx(payload, docxPath, profile);
 
+    if (payload.documentType === "report") {
+      const generatedDocxBuffer = await fs.readFile(docxPath);
+      const fixedDocxBuffer = applyDocumentPaginationFixes(
+        generatedDocxBuffer,
+        {
+          documentType: "report",
+        },
+      );
+      await fs.writeFile(docxPath, fixedDocxBuffer);
+    }
+
+    const pdfPath = buildPdfPath(docxPath, pdfDir);
+    await cleanupFileIfExists(pdfPath);
+
     const pdfStartedAt = Date.now();
     await convertToPdf(docxPath, pdfDir);
 
-    const pdfPath = buildPdfPath(docxPath, pdfDir);
     const validationContext = buildValidationContext(payload);
 
     const validateStartedAt = Date.now();
