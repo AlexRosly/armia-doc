@@ -1,3 +1,190 @@
+// const PizZip = require("pizzip");
+// const { DOMParser, XMLSerializer } = require("@xmldom/xmldom");
+
+// const WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+// const getFileText = (zip, name) => {
+//   const file = zip.file(name);
+//   if (!file) {
+//     throw new Error(`DOCX does not contain ${name}`);
+//   }
+//   return file.asText();
+// };
+
+// const parseXml = (xml) =>
+//   new DOMParser().parseFromString(xml, "application/xml");
+
+// const serializeXml = (doc) => new XMLSerializer().serializeToString(doc);
+
+// const getBody = (xmlDoc) => {
+//   const bodies = xmlDoc.getElementsByTagNameNS(WORD_NS, "body");
+//   if (!bodies.length) {
+//     throw new Error("Cannot find w:body in word/document.xml");
+//   }
+//   return bodies[0];
+// };
+
+// const getDirectChildElements = (node) => {
+//   const result = [];
+//   for (let child = node.firstChild; child; child = child.nextSibling) {
+//     if (child.nodeType === 1) result.push(child);
+//   }
+//   return result;
+// };
+
+// const isParagraphNode = (node) =>
+//   node &&
+//   node.nodeType === 1 &&
+//   node.namespaceURI === WORD_NS &&
+//   node.localName === "p";
+
+// const getParagraphText = (pNode) => {
+//   let text = "";
+
+//   const walk = (node) => {
+//     for (let child = node.firstChild; child; child = child.nextSibling) {
+//       if (child.nodeType !== 1) continue;
+
+//       if (
+//         child.namespaceURI === WORD_NS &&
+//         child.localName === "t" &&
+//         child.textContent
+//       ) {
+//         text += child.textContent;
+//       } else {
+//         walk(child);
+//       }
+//     }
+//   };
+
+//   walk(pNode);
+
+//   return text.replace(/\s+/g, " ").trim();
+// };
+
+// const normalizeText = (value = "") =>
+//   String(value).replace(/\s+/g, " ").trim().toLowerCase();
+
+// const getOrCreateParagraphProperties = (xmlDoc, pNode) => {
+//   for (let child = pNode.firstChild; child; child = child.nextSibling) {
+//     if (
+//       child.nodeType === 1 &&
+//       child.namespaceURI === WORD_NS &&
+//       child.localName === "pPr"
+//     ) {
+//       return child;
+//     }
+//   }
+
+//   const pPr = xmlDoc.createElementNS(WORD_NS, "w:pPr");
+
+//   if (pNode.firstChild) {
+//     pNode.insertBefore(pPr, pNode.firstChild);
+//   } else {
+//     pNode.appendChild(pPr);
+//   }
+
+//   return pPr;
+// };
+
+// const hasChildElement = (parent, localName) => {
+//   for (let child = parent.firstChild; child; child = child.nextSibling) {
+//     if (
+//       child.nodeType === 1 &&
+//       child.namespaceURI === WORD_NS &&
+//       child.localName === localName
+//     ) {
+//       return true;
+//     }
+//   }
+
+//   return false;
+// };
+
+// const ensureEmptyElement = (xmlDoc, parent, localName) => {
+//   if (hasChildElement(parent, localName)) return;
+//   const node = xmlDoc.createElementNS(WORD_NS, `w:${localName}`);
+//   parent.appendChild(node);
+// };
+
+// const applyKeepNext = (xmlDoc, pNode) => {
+//   const pPr = getOrCreateParagraphProperties(xmlDoc, pNode);
+//   ensureEmptyElement(xmlDoc, pPr, "keepNext");
+// };
+
+// const applyKeepLines = (xmlDoc, pNode) => {
+//   const pPr = getOrCreateParagraphProperties(xmlDoc, pNode);
+//   ensureEmptyElement(xmlDoc, pPr, "keepLines");
+// };
+
+// const findParagraphIndexByText = (bodyChildren, targetText) => {
+//   const normalizedTarget = normalizeText(targetText);
+
+//   for (let i = 0; i < bodyChildren.length; i++) {
+//     const node = bodyChildren[i];
+//     if (!isParagraphNode(node)) continue;
+
+//     const text = normalizeText(getParagraphText(node));
+//     if (text.includes(normalizedTarget)) {
+//       return i;
+//     }
+//   }
+
+//   return -1;
+// };
+
+// const findNextNonEmptyParagraphIndex = (bodyChildren, fromIndex) => {
+//   for (let i = fromIndex + 1; i < bodyChildren.length; i++) {
+//     const node = bodyChildren[i];
+//     if (!isParagraphNode(node)) continue;
+
+//     const text = getParagraphText(node);
+//     if (text) return i;
+//   }
+
+//   return -1;
+// };
+
+// const fixReportProshuPagination = (buffer, options = {}) => {
+//   const { markerText = "ПРОШУ:", keepWithNextParagraph = true } = options;
+
+//   const zip = new PizZip(buffer);
+//   const xmlDoc = parseXml(getFileText(zip, "word/document.xml"));
+//   const body = getBody(xmlDoc);
+//   const bodyChildren = getDirectChildElements(body);
+
+//   const proshuIndex = findParagraphIndexByText(bodyChildren, markerText);
+//   if (proshuIndex === -1) {
+//     return buffer;
+//   }
+
+//   const proshuParagraph = bodyChildren[proshuIndex];
+//   applyKeepNext(xmlDoc, proshuParagraph);
+//   applyKeepLines(xmlDoc, proshuParagraph);
+
+//   const firstParagraphAfterIndex = findNextNonEmptyParagraphIndex(
+//     bodyChildren,
+//     proshuIndex,
+//   );
+
+//   if (firstParagraphAfterIndex !== -1) {
+//     const firstParagraphAfter = bodyChildren[firstParagraphAfterIndex];
+//     applyKeepLines(xmlDoc, firstParagraphAfter);
+
+//     if (keepWithNextParagraph) {
+//       applyKeepNext(xmlDoc, firstParagraphAfter);
+//     }
+//   }
+
+//   zip.file("word/document.xml", serializeXml(xmlDoc));
+
+//   return zip.generate({
+//     type: "nodebuffer",
+//     compression: "DEFLATE",
+//   });
+// };
+
+// module.exports = fixReportProshuPagination;
 const PizZip = require("pizzip");
 const { DOMParser, XMLSerializer } = require("@xmldom/xmldom");
 
@@ -15,6 +202,9 @@ const parseXml = (xml) =>
   new DOMParser().parseFromString(xml, "application/xml");
 
 const serializeXml = (doc) => new XMLSerializer().serializeToString(doc);
+
+const normalizeText = (value = "") =>
+  String(value).replace(/\s+/g, " ").trim().toLowerCase();
 
 const getBody = (xmlDoc) => {
   const bodies = xmlDoc.getElementsByTagNameNS(WORD_NS, "body");
@@ -62,9 +252,6 @@ const getParagraphText = (pNode) => {
   return text.replace(/\s+/g, " ").trim();
 };
 
-const normalizeText = (value = "") =>
-  String(value).replace(/\s+/g, " ").trim().toLowerCase();
-
 const getOrCreateParagraphProperties = (xmlDoc, pNode) => {
   for (let child = pNode.firstChild; child; child = child.nextSibling) {
     if (
@@ -107,6 +294,24 @@ const ensureEmptyElement = (xmlDoc, parent, localName) => {
   parent.appendChild(node);
 };
 
+const removeChildElementIfExists = (parent, localName) => {
+  const toRemove = [];
+
+  for (let child = parent.firstChild; child; child = child.nextSibling) {
+    if (
+      child.nodeType === 1 &&
+      child.namespaceURI === WORD_NS &&
+      child.localName === localName
+    ) {
+      toRemove.push(child);
+    }
+  }
+
+  for (const node of toRemove) {
+    parent.removeChild(node);
+  }
+};
+
 const applyKeepNext = (xmlDoc, pNode) => {
   const pPr = getOrCreateParagraphProperties(xmlDoc, pNode);
   ensureEmptyElement(xmlDoc, pPr, "keepNext");
@@ -115,6 +320,11 @@ const applyKeepNext = (xmlDoc, pNode) => {
 const applyKeepLines = (xmlDoc, pNode) => {
   const pPr = getOrCreateParagraphProperties(xmlDoc, pNode);
   ensureEmptyElement(xmlDoc, pPr, "keepLines");
+};
+
+const removeKeepLines = (pNode) => {
+  const pPr = getOrCreateParagraphProperties(pNode.ownerDocument, pNode);
+  removeChildElementIfExists(pPr, "keepLines");
 };
 
 const findParagraphIndexByText = (bodyChildren, targetText) => {
@@ -133,20 +343,37 @@ const findParagraphIndexByText = (bodyChildren, targetText) => {
   return -1;
 };
 
+const findPreviousNonEmptyParagraphIndex = (bodyChildren, fromIndex) => {
+  for (let i = fromIndex - 1; i >= 0; i--) {
+    const node = bodyChildren[i];
+    if (!isParagraphNode(node)) continue;
+
+    if (normalizeText(getParagraphText(node))) {
+      return i;
+    }
+  }
+
+  return -1;
+};
+
 const findNextNonEmptyParagraphIndex = (bodyChildren, fromIndex) => {
   for (let i = fromIndex + 1; i < bodyChildren.length; i++) {
     const node = bodyChildren[i];
     if (!isParagraphNode(node)) continue;
 
-    const text = getParagraphText(node);
-    if (text) return i;
+    if (normalizeText(getParagraphText(node))) {
+      return i;
+    }
   }
 
   return -1;
 };
 
 const fixReportProshuPagination = (buffer, options = {}) => {
-  const { markerText = "ПРОШУ:", keepWithNextParagraph = true } = options;
+  const {
+    markerText = "ПРОШУ:",
+    previousContextText = "На підставі вищезазначеного,",
+  } = options;
 
   const zip = new PizZip(buffer);
   const xmlDoc = parseXml(getFileText(zip, "word/document.xml"));
@@ -158,22 +385,45 @@ const fixReportProshuPagination = (buffer, options = {}) => {
     return buffer;
   }
 
+  let previousIndex = findPreviousNonEmptyParagraphIndex(
+    bodyChildren,
+    proshuIndex,
+  );
+  const nextIndex = findNextNonEmptyParagraphIndex(bodyChildren, proshuIndex);
+
+  if (
+    previousIndex !== -1 &&
+    previousContextText &&
+    !normalizeText(getParagraphText(bodyChildren[previousIndex])).includes(
+      normalizeText(previousContextText),
+    )
+  ) {
+    const forcedContextIndex = findParagraphIndexByText(
+      bodyChildren.slice(0, proshuIndex),
+      previousContextText,
+    );
+
+    if (forcedContextIndex !== -1) {
+      previousIndex = forcedContextIndex;
+    }
+  }
+
+  if (previousIndex !== -1) {
+    const previousParagraph = bodyChildren[previousIndex];
+    applyKeepNext(xmlDoc, previousParagraph);
+    applyKeepLines(xmlDoc, previousParagraph);
+  }
+
   const proshuParagraph = bodyChildren[proshuIndex];
   applyKeepNext(xmlDoc, proshuParagraph);
   applyKeepLines(xmlDoc, proshuParagraph);
 
-  const firstParagraphAfterIndex = findNextNonEmptyParagraphIndex(
-    bodyChildren,
-    proshuIndex,
-  );
+  if (nextIndex !== -1) {
+    const nextParagraph = bodyChildren[nextIndex];
 
-  if (firstParagraphAfterIndex !== -1) {
-    const firstParagraphAfter = bodyChildren[firstParagraphAfterIndex];
-    applyKeepLines(xmlDoc, firstParagraphAfter);
+    applyKeepNext(xmlDoc, nextParagraph);
 
-    if (keepWithNextParagraph) {
-      applyKeepNext(xmlDoc, firstParagraphAfter);
-    }
+    removeKeepLines(nextParagraph);
   }
 
   zip.file("word/document.xml", serializeXml(xmlDoc));
