@@ -1795,6 +1795,12 @@ const profiles = {
       template: "APPROVAL_11__FS7.docx",
     },
   ],
+  generationPolicy: {
+    signaturePlacementMarkerText: "__SIGNATURE_START__",
+    minTextBeforeMarkerLength: 120,
+    minBodySignalScore: 1,
+    maxFinalFallbackAttempts: 1,
+  },
 };
 
 module.exports = profiles;

@@ -6,6 +6,7 @@ const deleteGenerationJob = require("./deleteGenerationJob");
 const findActiveGenerationJobByClientId = require("./findActiveGenerationJobByClientId");
 const assertGenerationJobOwnership = require("./assertGenerationJobOwnership");
 const buildGenerationJobPayload = require("./buildGenerationJobPayload");
+// const detectDetachedSignature = require("./detectDetachedSignature");
 
 module.exports = {
   runGenerationJob,
@@ -16,4 +17,5 @@ module.exports = {
   findActiveGenerationJobByClientId,
   assertGenerationJobOwnership,
   buildGenerationJobPayload,
+  // detectDetachedSignature,
 };
