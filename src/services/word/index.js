@@ -5,6 +5,7 @@ const fixOrderNakazuiuPagination = require("./fixOrderNakazuiuPagination");
 const fixReportProshuPagination = require("./fixReportProshuPagination");
 const fixSignatureTablePagination = require("./fixSignatureTablePagination");
 const fixOrderDirectiveSectionPagination = require("./fixOrderDirectiveSectionPagination");
+const forceReportProshuBlockToNextPage = require("./forceReportProshuBlockToNextPage");
 
 module.exports = {
   renderTemplate,
@@ -14,4 +15,5 @@ module.exports = {
   fixReportProshuPagination,
   fixSignatureTablePagination,
   fixOrderDirectiveSectionPagination,
+  forceReportProshuBlockToNextPage,
 };
