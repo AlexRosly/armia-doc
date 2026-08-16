@@ -241,11 +241,86 @@
 // };
 
 // module.exports = applyDocumentPaginationFixes;
+// const fixOrderNakazuiuPagination = require("./fixOrderNakazuiuPagination");
+// const fixOrderDirectiveSectionPagination = require("./fixOrderDirectiveSectionPagination");
+// const fixReportProshuPagination = require("./fixReportProshuPagination");
+// const fixSignatureTablePagination = require("./fixSignatureTablePagination");
+// const normalizeHeaderPageNumber = require("./normalizeHeaderPageNumber");
+
+// const ptToTwips = (pt) => Math.round(Number(pt) * 20);
+
+// const resolveReportProshuSpacingAfterTwips = (options = {}) => {
+//   const formatting = options.reportFormatting || {};
+
+//   if (Number.isFinite(formatting.proshuSpacingAfterTwips)) {
+//     return formatting.proshuSpacingAfterTwips;
+//   }
+
+//   if (Number.isFinite(formatting.proshuFontSizePt)) {
+//     return ptToTwips(formatting.proshuFontSizePt * 2);
+//   }
+
+//   return null;
+// };
+
+// const applyDocumentPaginationFixes = (buffer, options = {}) => {
+//   const { documentType } = options;
+
+//   let resultBuffer = buffer;
+
+//   if (documentType === "order") {
+//     resultBuffer = fixOrderNakazuiuPagination(resultBuffer, {
+//       markerText: "НАКАЗУЮ:",
+//       keepWithNextParagraph: true,
+//     });
+
+//     resultBuffer = fixOrderDirectiveSectionPagination(resultBuffer, {
+//       markerText: "НАКАЗУЮ:",
+//       stopBeforeTable: true,
+//       stopBeforeSignatureMarker: "__SIGNATURE_START__",
+//     });
+
+//     resultBuffer = normalizeHeaderPageNumber(resultBuffer);
+
+//     resultBuffer = fixSignatureTablePagination(resultBuffer, {
+//       markerTexts: ["__SIGNATURE_START__"],
+//       removeMarkerParagraph: true,
+//       orderTailMode: true,
+//     });
+//   }
+
+//   if (documentType === "report") {
+//     const proshuSpacingAfterTwips =
+//       resolveReportProshuSpacingAfterTwips(options);
+
+//     resultBuffer = fixReportProshuPagination(resultBuffer, {
+//       markerText: "ПРОШУ:",
+//       previousContextText: "На підставі вищезазначеного,",
+//       normalizeProshuSpacingAfter: Number.isFinite(proshuSpacingAfterTwips),
+//       proshuSpacingAfterTwips,
+//       removeEmptyParagraphsBetween: true,
+//       stripPaginationFlagsFromIntermediate: true,
+//     });
+
+//     resultBuffer = normalizeHeaderPageNumber(resultBuffer);
+
+//     resultBuffer = fixSignatureTablePagination(resultBuffer, {
+//       markerTexts: ["__SIGNATURE_START__"],
+//       removeMarkerParagraph: true,
+//       orderTailMode: false,
+//     });
+//   }
+
+//   return resultBuffer;
+// };
+
+// module.exports = applyDocumentPaginationFixes;
 const fixOrderNakazuiuPagination = require("./fixOrderNakazuiuPagination");
 const fixOrderDirectiveSectionPagination = require("./fixOrderDirectiveSectionPagination");
 const fixReportProshuPagination = require("./fixReportProshuPagination");
 const fixSignatureTablePagination = require("./fixSignatureTablePagination");
 const normalizeHeaderPageNumber = require("./normalizeHeaderPageNumber");
+const normalizeDocumentParagraphPagination = require("./normalizeDocumentParagraphPagination");
 
 const ptToTwips = (pt) => Math.round(Number(pt) * 20);
 
@@ -269,6 +344,14 @@ const applyDocumentPaginationFixes = (buffer, options = {}) => {
   let resultBuffer = buffer;
 
   if (documentType === "order") {
+    resultBuffer = normalizeDocumentParagraphPagination(resultBuffer, {
+      removeKeepNext: true,
+      removeKeepLines: true,
+      removePageBreakBefore: true,
+      removeWidowControl: true,
+      stopBeforeMarkerText: "__SIGNATURE_START__",
+    });
+
     resultBuffer = fixOrderNakazuiuPagination(resultBuffer, {
       markerText: "НАКАЗУЮ:",
       keepWithNextParagraph: true,
@@ -290,6 +373,14 @@ const applyDocumentPaginationFixes = (buffer, options = {}) => {
   }
 
   if (documentType === "report") {
+    resultBuffer = normalizeDocumentParagraphPagination(resultBuffer, {
+      removeKeepNext: true,
+      removeKeepLines: true,
+      removePageBreakBefore: true,
+      removeWidowControl: true,
+      stopBeforeMarkerText: "__SIGNATURE_START__",
+    });
+
     const proshuSpacingAfterTwips =
       resolveReportProshuSpacingAfterTwips(options);
 
@@ -307,7 +398,7 @@ const applyDocumentPaginationFixes = (buffer, options = {}) => {
     resultBuffer = fixSignatureTablePagination(resultBuffer, {
       markerTexts: ["__SIGNATURE_START__"],
       removeMarkerParagraph: true,
-      orderTailMode: false,
+      orderTailMode: true,
     });
   }
 
