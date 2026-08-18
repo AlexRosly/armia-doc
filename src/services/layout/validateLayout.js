@@ -182,6 +182,47 @@
 // };
 
 // module.exports = validateLayout;
+// const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
+// const {
+//   buildPagesFromPdf,
+//   validateBottomMargins,
+//   validateEmptyLastPage,
+//   validateReportLayoutRules,
+//   validateOrderLayoutRules,
+// } = require("./validators");
+
+// const validateLayout = async (pdfPath, context = {}) => {
+//   const pdf = await pdfjs.getDocument(pdfPath).promise;
+//   const pages = await buildPagesFromPdf(pdf);
+//   const hardViolations = [];
+
+//   validateEmptyLastPage(pages, hardViolations);
+
+//   switch (context.documentType) {
+//     case "report":
+//       validateReportLayoutRules(pages, context, hardViolations);
+//       break;
+
+//     case "order":
+//       validateOrderLayoutRules(pages, context, hardViolations);
+//       break;
+
+//     case "act":
+//     default:
+//       break;
+//   }
+
+//   const marginViolations = validateBottomMargins(pages, hardViolations);
+
+//   return {
+//     pages,
+//     hardViolations,
+//     marginViolations,
+//     passed: hardViolations.length === 0 && marginViolations.length === 0,
+//   };
+// };
+
+// module.exports = validateLayout;
 const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 const {
   buildPagesFromPdf,
@@ -189,7 +230,47 @@ const {
   validateEmptyLastPage,
   validateReportLayoutRules,
   validateOrderLayoutRules,
+  detectSystemicBottomWhitespace,
 } = require("./validators");
+
+const hasViolationCode = (violations, code) =>
+  (violations || []).some((item) => item.code === code);
+
+const buildLayoutFlags = (documentType, hardViolations) => {
+  if (documentType === "report") {
+    return {
+      proshuOk:
+        !hasViolationCode(hardViolations, "PROSHU_LAST_LINE") &&
+        !hasViolationCode(hardViolations, "PROSHU_NOT_ENOUGH_LINES_AFTER") &&
+        !hasViolationCode(hardViolations, "PROSHU_BLOCK_ORPHANED") &&
+        !hasViolationCode(hardViolations, "FOUNDATION_PHRASE_HANGING"),
+      nakazuiuOk: null,
+      signatureOk:
+        !hasViolationCode(hardViolations, "SIGNATURE_BLOCK_SPLIT") &&
+        !hasViolationCode(hardViolations, "SIGNATURE_WITHOUT_CONTEXT") &&
+        !hasViolationCode(hardViolations, "SIGN_DATE_DETACHED"),
+    };
+  }
+
+  if (documentType === "order") {
+    return {
+      proshuOk: null,
+      nakazuiuOk:
+        !hasViolationCode(hardViolations, "NAKAZUIU_LAST_LINE") &&
+        !hasViolationCode(hardViolations, "NAKAZUIU_NOT_ENOUGH_LINES_AFTER"),
+      signatureOk:
+        !hasViolationCode(hardViolations, "ORDER_SIGNATURE_BLOCK_SPLIT") &&
+        !hasViolationCode(hardViolations, "ORDER_SIGNATURE_WITHOUT_CONTEXT") &&
+        !hasViolationCode(hardViolations, "ORDER_SIGNATURE_ORPHAN_LAST_PAGE"),
+    };
+  }
+
+  return {
+    proshuOk: null,
+    nakazuiuOk: null,
+    signatureOk: null,
+  };
+};
 
 const validateLayout = async (pdfPath, context = {}) => {
   const pdf = await pdfjs.getDocument(pdfPath).promise;
@@ -212,12 +293,51 @@ const validateLayout = async (pdfPath, context = {}) => {
       break;
   }
 
-  const marginViolations = validateBottomMargins(pages, hardViolations);
+  const marginViolations = validateBottomMargins(pages, {
+    expectedBottomMarginCm:
+      context.expectedBottomMarginCm != null
+        ? Number(context.expectedBottomMarginCm)
+        : 2.0,
+
+    minAllowedBottomMarginCm:
+      context.minAllowedBottomMarginCm != null
+        ? Number(context.minAllowedBottomMarginCm)
+        : 1.9,
+
+    // Верхнюю границу делаем мягче, чтобы не конфликтовать с отдельным
+    // детектором системного хвоста
+    maxAllowedBottomMarginCm:
+      context.maxAllowedBottomMarginCm != null
+        ? Number(context.maxAllowedBottomMarginCm)
+        : 3.2,
+  });
+
+  const systemicWhitespace = detectSystemicBottomWhitespace(pages, {
+    expectedBottomMarginCm:
+      context.expectedBottomMarginCm != null
+        ? Number(context.expectedBottomMarginCm)
+        : 2.0,
+
+    // Было 2.8 — это многовато. Делаем ближе к реальному ожиданию.
+    thresholdCm:
+      context.systemicWhitespaceThresholdCm != null
+        ? Number(context.systemicWhitespaceThresholdCm)
+        : 2.2,
+
+    minShare:
+      context.systemicWhitespaceMinShare != null
+        ? Number(context.systemicWhitespaceMinShare)
+        : 0.5,
+  });
+
+  const layoutFlags = buildLayoutFlags(context.documentType, hardViolations);
 
   return {
     pages,
     hardViolations,
     marginViolations,
+    systemicWhitespace,
+    layoutFlags,
     passed: hardViolations.length === 0 && marginViolations.length === 0,
   };
 };

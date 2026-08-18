@@ -6,6 +6,7 @@ const fixReportProshuPagination = require("./fixReportProshuPagination");
 const fixSignatureTablePagination = require("./fixSignatureTablePagination");
 const fixOrderDirectiveSectionPagination = require("./fixOrderDirectiveSectionPagination");
 const forceReportProshuBlockToNextPage = require("./forceReportProshuBlockToNextPage");
+const setSectionBottomMargin = require("./setSectionBottomMargin");
 
 module.exports = {
   renderTemplate,
@@ -16,4 +17,5 @@ module.exports = {
   fixSignatureTablePagination,
   fixOrderDirectiveSectionPagination,
   forceReportProshuBlockToNextPage,
+  setSectionBottomMargin,
 };

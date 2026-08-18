@@ -150,6 +150,9 @@ src/
 │   │   ├── constants.js
 │   │   ├── createGenerationJob.js
 │   │   ├── deleteGenerationJob.js
+│   │   ├── detectDetachedSignature.js
+│   │   ├── evaluteReportProshuPlacement.js
+│   │   ├── extractPdfPagesText.js
 │   │   ├── findActiveGenerationJobByClientId.js
 │   │   ├── persistAndGenerate.js
 │   │   ├── runGeneration.js
@@ -167,18 +170,39 @@ src/
 │   │   │        ├── report.js
 │   │   │        └── index.js
 │   │   ├── bestEffortSelector.js
+│   │   ├── evaluateOrderSignaturePlacement.js
+│   │   ├── evaluteLayoutCandidate.js
+│   │   ├── extractPdfPageTextItems.js
+│   │   ├── getLayoutRulesByDocumentType.js
 │   │   ├── profiles.js
-│   │   ├── runProfiles.js
 │   │   ├── runActGeneration.js
 │   │   ├── runOrderGeneration.js
+│   │   ├── runProfiles.js
+│   │   ├── tryBottomMarginFallback.js
 │   │   ├── validateLayout.js
 │   │   └── index.js
 │   ├── pdf/
 │   │   ├── convertToPdf.js
 │   │   └── index.js
 │   ├── word/
-│   │   ├── renderTemplate.js
+│   │   ├── applyDocumentPaginationFixes.js
+│   │   ├── debugWordSystemLayout.js
+│   │   ├── fixOrderDirectiveSectionPagination.js
+│   │   ├── fixOrderNakazuiuPagination.js
+│   │   ├── fixOrderTailBeforeSignaturePagination.js
+│   │   ├── fixReportProshuPagination.js
+│   │   ├── fixSignatureTablePagination.js
+│   │   ├── forceReportProshuBlockToNextPage.js
 │   │   ├── mergeDocuments.js
+│   │   ├── normalizeAllParagraphStyles.js
+│   │   ├── normalizeDocumentParagraphPagination.js
+│   │   ├── normalizeDocumentParagraphSpacing.js
+│   │   ├── normalizeHeaderPageNumber.js
+│   │   ├── normalizeSectionLayout.js
+│   │   ├── normalizeStylesDefaultParagraph.js
+│   │   ├── renderTemplate.js
+│   │   ├── setSectionBottomMargin.js
+│   │   ├── tightenReportOpeningBlock.js
 │   │   └── index.js
 │   └── index.js
 ├── utils/
