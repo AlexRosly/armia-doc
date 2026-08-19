@@ -4899,6 +4899,1061 @@
 // };
 
 // module.exports = runOrderGeneration;
+// const fs = require("fs/promises");
+// const path = require("path");
+
+// const { convertToPdf } = require("../pdf");
+// const { applyDocumentPaginationFixes } = require("../word");
+// const validateLayout = require("./validateLayout");
+// const detectDetachedSignature = require("../generation/detectDetachedSignature");
+// const documents = require("../documents");
+// const order = require("../documents/order");
+// const { tryBottomMarginFallback } = require("./tryBottomMarginFallback");
+
+// const LOG_PREFIX = "[runOrderGeneration]";
+// const DEBUG_KEEP_ARTIFACTS = false;
+
+// const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// const buildPayload = (report) => ({
+//   ...report.toObject(),
+//   documentType: report.documentType,
+//   templateType: report.templateType,
+// });
+
+// const buildDocxPath = (job, suffix) =>
+//   path.join(process.cwd(), "storage", "docx", `${job._id}_${suffix}.docx`);
+
+// const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
+
+// const buildPdfPath = (docxPath, pdfDir) =>
+//   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
+
+// const buildFinalDocxPath = (job) =>
+//   path.join(process.cwd(), "storage", "docx", `${job._id}_nakaz.docx`);
+
+// const buildFinalCandidateDocxPath = (job, suffix) =>
+//   path.join(
+//     process.cwd(),
+//     "storage",
+//     "docx",
+//     `${job._id}_nakaz_${suffix}.docx`,
+//   );
+
+// const ensureParentDir = async (filePath) => {
+//   await fs.mkdir(path.dirname(filePath), { recursive: true });
+// };
+
+// const cleanupFileIfExists = async (filePath, options = {}) => {
+//   const retries = Number.isInteger(options.retries) ? options.retries : 6;
+//   const delayMs = Number.isInteger(options.delayMs) ? options.delayMs : 500;
+
+//   for (let attempt = 0; attempt <= retries; attempt++) {
+//     try {
+//       await fs.unlink(filePath);
+//       console.log(`${LOG_PREFIX} cleaned file=${filePath}`);
+//       return true;
+//     } catch (error) {
+//       if (error.code === "ENOENT") {
+//         return true;
+//       }
+
+//       const isLastAttempt = attempt === retries;
+//       const isRetryable =
+//         error.code === "EBUSY" ||
+//         error.code === "EPERM" ||
+//         error.code === "EACCES";
+
+//       if (!isRetryable || isLastAttempt) {
+//         console.warn(
+//           `${LOG_PREFIX} cleanup failed file=${filePath} code=${error.code}`,
+//         );
+//         console.warn(error.message);
+//         return false;
+//       }
+
+//       console.warn(
+//         `${LOG_PREFIX} cleanup retry file=${filePath} code=${error.code} attempt=${attempt + 1}/${retries + 1}`,
+//       );
+
+//       await sleep(delayMs);
+//     }
+//   }
+
+//   return false;
+// };
+
+// const replaceFile = async (sourcePath, targetPath) => {
+//   if (!sourcePath || !targetPath) {
+//     throw new Error("replaceFile: sourcePath and targetPath are required");
+//   }
+
+//   if (sourcePath === targetPath) {
+//     return targetPath;
+//   }
+
+//   await cleanupFileIfExists(targetPath);
+//   await fs.rename(sourcePath, targetPath);
+
+//   return targetPath;
+// };
+
+// const cleanupArtifacts = async (paths) => {
+//   const uniquePaths = [...new Set(paths.filter(Boolean))];
+
+//   console.log(
+//     `${LOG_PREFIX} cleanupArtifacts start count=${uniquePaths.length}`,
+//   );
+
+//   for (const filePath of uniquePaths) {
+//     await cleanupFileIfExists(filePath);
+//   }
+
+//   console.log(`${LOG_PREFIX} cleanupArtifacts end`);
+// };
+
+// const cleanupJobArtifactsByPrefix = async (
+//   jobId,
+//   { keepDocxNames = [], keepPdfNames = [] } = {},
+// ) => {
+//   const docxDir = path.join(process.cwd(), "storage", "docx");
+//   const pdfDir = path.join(process.cwd(), "storage", "pdf");
+
+//   const keepDocxSet = new Set(keepDocxNames.filter(Boolean));
+//   const keepPdfSet = new Set(keepPdfNames.filter(Boolean));
+
+//   const cleanupDir = async (dirPath, keepSet) => {
+//     let entries = [];
+
+//     try {
+//       entries = await fs.readdir(dirPath, { withFileTypes: true });
+//     } catch (error) {
+//       if (error.code === "ENOENT") {
+//         return;
+//       }
+//       throw error;
+//     }
+
+//     for (const entry of entries) {
+//       if (!entry.isFile()) continue;
+//       if (!entry.name.startsWith(`${jobId}_`)) continue;
+//       if (keepSet.has(entry.name)) continue;
+
+//       const fullPath = path.join(dirPath, entry.name);
+//       console.log(
+//         `${LOG_PREFIX} cleanupJobArtifactsByPrefix candidate=${fullPath}`,
+//       );
+//       await cleanupFileIfExists(fullPath);
+//     }
+//   };
+
+//   console.log(`${LOG_PREFIX} cleanupJobArtifactsByPrefix start job=${jobId}`);
+
+//   await cleanupDir(docxDir, keepDocxSet);
+//   await cleanupDir(pdfDir, keepPdfSet);
+
+//   console.log(`${LOG_PREFIX} cleanupJobArtifactsByPrefix end job=${jobId}`);
+// };
+
+// const formatSignerDate = (value) => {
+//   if (!value) return "";
+
+//   const date = new Date(value);
+//   if (Number.isNaN(date.getTime())) return "";
+
+//   return date.toLocaleDateString("uk-UA", {
+//     day: "2-digit",
+//     month: "2-digit",
+//     year: "numeric",
+//   });
+// };
+
+// const buildValidationContext = (payload, label) => {
+//   if (label === "order") {
+//     const signer = payload.data?.signer || {};
+
+//     return {
+//       documentType: "order",
+//       expectedBottomMarginCm: 2.0,
+//       minAllowedBottomMarginCm: 1.9,
+//       maxAllowedBottomMarginCm: 3.2,
+//       systemicWhitespaceThresholdCm: 2.2,
+//       systemicWhitespaceMinShare: 0.5,
+//       markers: {
+//         nakazuiu: "НАКАЗУЮ:",
+//         signerPosition: signer.position,
+//         signerRank: signer.rank,
+//         signerFirstName: signer.firstName,
+//         signerLastName: signer.lastName,
+//       },
+//     };
+//   }
+
+//   if (label === "approval") {
+//     return {
+//       documentType: "approval",
+//       expectedBottomMarginCm: 2.0,
+//       minAllowedBottomMarginCm: 1.9,
+//       maxAllowedBottomMarginCm: 3.2,
+//       systemicWhitespaceThresholdCm: 2.2,
+//       systemicWhitespaceMinShare: 0.5,
+//       markers: {},
+//     };
+//   }
+
+//   if (payload.documentType === "report") {
+//     const signer = payload.data?.signer || {};
+
+//     return {
+//       documentType: "report",
+//       expectedBottomMarginCm: 2.0,
+//       minAllowedBottomMarginCm: 1.9,
+//       maxAllowedBottomMarginCm: 3.2,
+//       systemicWhitespaceThresholdCm: 2.2,
+//       systemicWhitespaceMinShare: 0.5,
+//       markers: {
+//         proshu: "ПРОШУ:",
+//         foundationPhrase: "На підставі вищезазначеного,",
+//         signerPosition: signer.position,
+//         signerMilitaryUnit: signer.militaryUnit,
+//         signerRank: signer.rank,
+//         signerFullName: signer.fullName,
+//         signerDate: signer.date,
+//         signerDateFormatted: formatSignerDate(signer.date),
+//       },
+//     };
+//   }
+
+//   return {
+//     documentType: label || payload.documentType,
+//     expectedBottomMarginCm: 2.0,
+//     minAllowedBottomMarginCm: 1.9,
+//     maxAllowedBottomMarginCm: 3.2,
+//     systemicWhitespaceThresholdCm: 2.2,
+//     systemicWhitespaceMinShare: 0.5,
+//     markers: {},
+//   };
+// };
+
+// const validateCandidateLayout = async (pdfPath, payload, label) => {
+//   const validationContext = buildValidationContext(payload, label);
+//   return validateLayout(pdfPath, validationContext);
+// };
+
+// const applyOrderPaginationFixesToFile = async (docxPath, profile, payload) => {
+//   console.log(
+//     `${LOG_PREFIX} applyOrderPaginationFixesToFile start docxPath=${docxPath}`,
+//   );
+
+//   const generatedDocxBuffer = await fs.readFile(docxPath);
+
+//   const fixedDocxBuffer = applyDocumentPaginationFixes(generatedDocxBuffer, {
+//     documentType: "order",
+//     orderFormatting: profile?.orderFormatting,
+//     orderTitleText: payload?.data?.orderDetails?.orderTitle || "",
+//   });
+
+//   await fs.writeFile(docxPath, fixedDocxBuffer);
+
+//   console.log(
+//     `${LOG_PREFIX} applyOrderPaginationFixesToFile done docxPath=${docxPath}`,
+//   );
+// };
+
+// const evaluateOrderCandidate = async ({
+//   payload,
+//   job,
+//   pdfDir,
+//   profile,
+//   profileIndex,
+// }) => {
+//   const docxPath = buildDocxPath(job, `order_candidate_${profileIndex + 1}`);
+//   const pdfPath = buildPdfPath(docxPath, pdfDir);
+//   const artifacts = [docxPath, pdfPath];
+//   const candidateStartedAt = Date.now();
+
+//   try {
+//     console.log(
+//       `${LOG_PREFIX} order-candidate-start profile=${profile.name} index=${profileIndex}`,
+//     );
+
+//     await ensureParentDir(docxPath);
+//     await cleanupFileIfExists(docxPath);
+//     await cleanupFileIfExists(pdfPath);
+
+//     const docxStartedAt = Date.now();
+//     await order.generateOrderOnlyDocument(payload, docxPath, profile);
+
+//     await applyOrderPaginationFixesToFile(docxPath, profile, payload);
+
+//     const pdfStartedAt = Date.now();
+//     await convertToPdf(docxPath, pdfDir);
+
+//     const validateStartedAt = Date.now();
+//     const layout = await validateCandidateLayout(pdfPath, payload, "order");
+
+//     console.log(
+//       `${LOG_PREFIX} order-candidate-timings profile=${profile.name} docxMs=${pdfStartedAt - docxStartedAt} pdfMs=${validateStartedAt - pdfStartedAt} validateMs=${Date.now() - validateStartedAt} totalMs=${Date.now() - candidateStartedAt}`,
+//     );
+
+//     console.log(
+//       `${LOG_PREFIX} order-candidate-summary profile=${profile.name} passed=${layout.passed} hard=${layout.hardViolations.length} margin=${layout.marginViolations.length} systemicWhitespace=${layout.systemicWhitespace?.triggered} whitespaceScore=${layout.systemicWhitespace?.score}`,
+//     );
+
+//     console.log(
+//       `${LOG_PREFIX} order-candidate-hard-codes profile=${profile.name} codes=${JSON.stringify(layout.hardViolations.map((v) => v.code))}`,
+//     );
+
+//     return {
+//       ok: true,
+//       profileName: profile.name,
+//       profile,
+//       profileIndex,
+//       pages: layout.pages,
+//       hardViolations: layout.hardViolations,
+//       marginViolations: layout.marginViolations,
+//       hasLayoutError: !layout.passed,
+//       docxPath,
+//       pdfPath,
+//       layout,
+//       layoutFlags: layout.layoutFlags,
+//       systemicWhitespace: layout.systemicWhitespace,
+//       artifacts,
+//     };
+//   } catch (error) {
+//     console.error(
+//       `${LOG_PREFIX} order-candidate-failed profile=${profile.name} index=${profileIndex}`,
+//     );
+//     console.error(error);
+
+//     return {
+//       ok: false,
+//       profileName: profile.name,
+//       profile,
+//       profileIndex,
+//       pages: [],
+//       hardViolations: [],
+//       marginViolations: [],
+//       hasLayoutError: true,
+//       error: error.message,
+//       docxPath,
+//       pdfPath,
+//       layout: null,
+//       layoutFlags: null,
+//       systemicWhitespace: null,
+//       artifacts,
+//     };
+//   }
+// };
+
+// const prepareCleanFinalOrderSource = async ({
+//   job,
+//   sourceDocxPath,
+//   artifacts,
+//   suffix = "order_final_source",
+//   orderFormatting = null,
+//   payload,
+// }) => {
+//   const pdfDir = buildPdfDir();
+//   const cleanDocxPath = buildDocxPath(job, suffix);
+//   const cleanPdfPath = buildPdfPath(cleanDocxPath, pdfDir);
+
+//   console.log(
+//     `${LOG_PREFIX} prepareCleanFinalOrderSource start sourceDocxPath=${sourceDocxPath} suffix=${suffix}`,
+//   );
+
+//   await cleanupFileIfExists(cleanDocxPath);
+//   await cleanupFileIfExists(cleanPdfPath);
+
+//   const sourceBuffer = await fs.readFile(sourceDocxPath);
+//   const cleanedBuffer = applyDocumentPaginationFixes(sourceBuffer, {
+//     documentType: "order",
+//     orderFormatting,
+//     orderTitleText: payload?.data?.orderDetails?.orderTitle || "",
+//   });
+
+//   await ensureParentDir(cleanDocxPath);
+//   await fs.writeFile(cleanDocxPath, cleanedBuffer);
+
+//   await convertToPdf(cleanDocxPath, pdfDir);
+
+//   if (Array.isArray(artifacts)) {
+//     artifacts.push(cleanDocxPath, cleanPdfPath);
+//   }
+
+//   return {
+//     docxPath: cleanDocxPath,
+//     pdfPath: cleanPdfPath,
+//   };
+// };
+
+// const findNextGoodOrderCandidate = async ({
+//   payload,
+//   job,
+//   orderProfiles,
+//   startIndex = 0,
+// }) => {
+//   console.log(
+//     `${LOG_PREFIX} findNextGoodOrderCandidate start startIndex=${startIndex} totalProfiles=${orderProfiles.length}`,
+//   );
+
+//   const pdfDir = buildPdfDir();
+//   const artifacts = [];
+
+//   try {
+//     for (let index = startIndex; index < orderProfiles.length; index++) {
+//       const profile = orderProfiles[index];
+
+//       console.log(
+//         `${LOG_PREFIX} trying order profile index=${index} profile=${profile.name}`,
+//       );
+
+//       const result = await evaluateOrderCandidate({
+//         payload,
+//         job,
+//         pdfDir,
+//         profile,
+//         profileIndex: index,
+//       });
+
+//       artifacts.push(...(result.artifacts || []));
+
+//       if (!result.ok) {
+//         console.warn(
+//           `${LOG_PREFIX} continue-after-order-profile profile=${profile.name} reason=candidate_failed`,
+//         );
+//         continue;
+//       }
+
+//       const markerOk = Boolean(result.layoutFlags?.nakazuiuOk);
+//       const signatureOk = Boolean(result.layoutFlags?.signatureOk);
+//       const systemicWhitespace = Boolean(result.systemicWhitespace?.triggered);
+
+//       console.log(
+//         `${LOG_PREFIX} order-candidate-flags profile=${result.profileName} markerOk=${markerOk} signatureOk=${signatureOk} systemicWhitespace=${systemicWhitespace} whitespaceScore=${result.systemicWhitespace?.score ?? "n/a"}`,
+//       );
+
+//       if (!markerOk || !signatureOk) {
+//         console.warn(
+//           `${LOG_PREFIX} continue-after-order-profile profile=${result.profileName} reason=critical_layout_block_failed markerOk=${markerOk} signatureOk=${signatureOk}`,
+//         );
+//         continue;
+//       }
+
+//       if (!systemicWhitespace) {
+//         console.log(
+//           `${LOG_PREFIX} stop-on-order-profile profile=${result.profileName} variant=base reason=base_ok_no_systemic_tail`,
+//         );
+
+//         return {
+//           selected: {
+//             status: result.hasLayoutError ? "best_effort" : "passed",
+//             profileName: result.profileName,
+//             profile: result.profile,
+//             profileIndex: result.profileIndex,
+//             selectedVariant: "base",
+//             pages: result.pages,
+//             hardViolations: result.hardViolations,
+//             marginViolations: result.marginViolations,
+//             docxPath: result.docxPath,
+//             pdfPath: result.pdfPath,
+//             layout: result.layout,
+//             layoutFlags: result.layoutFlags,
+//             systemicWhitespace: result.systemicWhitespace,
+//           },
+//           artifacts,
+//         };
+//       }
+
+//       const fallbackDecision = await tryBottomMarginFallback({
+//         payload,
+//         profileName: result.profileName,
+//         baseDocxPath: result.docxPath,
+//         pdfDir,
+//         cleanupFileIfExists,
+//         logger: console,
+//       });
+
+//       artifacts.push(...(fallbackDecision.artifacts || []));
+
+//       console.warn(
+//         `${LOG_PREFIX} order-bottom-margin-fallback profile=${result.profileName} decision=${fallbackDecision.decision} reason=${fallbackDecision.reason}`,
+//       );
+
+//       if (fallbackDecision.decision === "accept-base") {
+//         console.log(
+//           `${LOG_PREFIX} stop-on-order-profile profile=${result.profileName} variant=base reason=fallback_accept_base`,
+//         );
+
+//         return {
+//           selected: {
+//             status: fallbackDecision.base.layout.passed
+//               ? "passed"
+//               : "best_effort",
+//             profileName: result.profileName,
+//             profile: result.profile,
+//             profileIndex: result.profileIndex,
+//             selectedVariant: "base",
+//             pages: fallbackDecision.base.layout.pages,
+//             hardViolations: fallbackDecision.base.layout.hardViolations,
+//             marginViolations: fallbackDecision.base.layout.marginViolations,
+//             docxPath: result.docxPath,
+//             pdfPath: result.pdfPath,
+//             layout: fallbackDecision.base.layout,
+//             layoutFlags: fallbackDecision.base.layout.layoutFlags,
+//             systemicWhitespace: fallbackDecision.base.layout.systemicWhitespace,
+//           },
+//           artifacts,
+//         };
+//       }
+
+//       if (fallbackDecision.decision === "accept-alt") {
+//         const finalDocxPath = result.docxPath;
+//         const finalPdfPath = result.pdfPath;
+
+//         await replaceFile(fallbackDecision.alt.docxPath, finalDocxPath);
+//         await replaceFile(fallbackDecision.alt.pdfPath, finalPdfPath);
+
+//         console.log(
+//           `${LOG_PREFIX} stop-on-order-profile profile=${result.profileName} variant=bottom1077 reason=accept_alt_bottom1077`,
+//         );
+
+//         return {
+//           selected: {
+//             status: fallbackDecision.alt.layout.passed
+//               ? "passed"
+//               : "best_effort",
+//             profileName: result.profileName,
+//             profile: result.profile,
+//             profileIndex: result.profileIndex,
+//             selectedVariant: "bottom1077",
+//             pages: fallbackDecision.alt.layout.pages,
+//             hardViolations: fallbackDecision.alt.layout.hardViolations,
+//             marginViolations: fallbackDecision.alt.layout.marginViolations,
+//             docxPath: finalDocxPath,
+//             pdfPath: finalPdfPath,
+//             layout: fallbackDecision.alt.layout,
+//             layoutFlags: fallbackDecision.alt.layout.layoutFlags,
+//             systemicWhitespace: fallbackDecision.alt.layout.systemicWhitespace,
+//           },
+//           artifacts,
+//         };
+//       }
+
+//       console.warn(
+//         `${LOG_PREFIX} continue-after-order-profile profile=${result.profileName} reason=fallback_not_accepted`,
+//       );
+//     }
+
+//     console.warn(
+//       `${LOG_PREFIX} no good order profile found starting from index=${startIndex}`,
+//     );
+
+//     return {
+//       selected: null,
+//       artifacts,
+//     };
+//   } catch (error) {
+//     console.error(`${LOG_PREFIX} findNextGoodOrderCandidate failed`);
+//     console.error(error);
+
+//     return {
+//       selected: null,
+//       artifacts,
+//     };
+//   }
+// };
+
+// const runApprovalSelection = async ({ payload, job, profiles }) => {
+//   if (!profiles.length) {
+//     throw new Error("No approval profiles configured");
+//   }
+
+//   const docxPath = buildDocxPath(job, "approval");
+//   const pdfDir = buildPdfDir();
+
+//   let bestResult = null;
+
+//   console.log(
+//     `${LOG_PREFIX} runApprovalSelection start totalProfiles=${profiles.length}`,
+//   );
+
+//   for (const profile of profiles) {
+//     try {
+//       console.log(
+//         `${LOG_PREFIX} approval evaluate start profile=${profile.name}`,
+//       );
+
+//       await ensureParentDir(docxPath);
+//       await cleanupFileIfExists(docxPath);
+//       await cleanupFileIfExists(buildPdfPath(docxPath, pdfDir));
+
+//       await order.generateApprovalOnlyDocument(payload, docxPath, profile);
+//       await convertToPdf(docxPath, pdfDir);
+
+//       const pdfPath = buildPdfPath(docxPath, pdfDir);
+//       const layout = await validateCandidateLayout(
+//         pdfPath,
+//         payload,
+//         "approval",
+//       );
+
+//       const result = {
+//         status: layout.passed ? "passed" : "best_effort",
+//         profileName: profile.name,
+//         profile,
+//         pages: layout.pages,
+//         docxPath,
+//         pdfPath,
+//         artifacts: [docxPath, pdfPath],
+//       };
+
+//       if (layout.pages.length !== 1) {
+//         if (!bestResult || bestResult.pages.length !== 1) {
+//           bestResult = result;
+//         }
+//         continue;
+//       }
+
+//       if (layout.passed) {
+//         return result;
+//       }
+
+//       if (!bestResult) {
+//         bestResult = result;
+//       }
+//     } catch (error) {
+//       console.error(
+//         `${LOG_PREFIX} approval candidate failed profile=${profile.name}`,
+//       );
+//       console.error(error);
+//     }
+//   }
+
+//   if (bestResult && bestResult.pages.length === 1) {
+//     return bestResult;
+//   }
+
+//   throw new Error("No valid approval profile could be generated");
+// };
+
+// const generateFinalOrderArtifact = async ({
+//   payload,
+//   outputPath,
+//   finalProfile,
+//   orderSource,
+//   approvalSource,
+// }) => {
+//   await ensureParentDir(outputPath);
+
+//   return order.generateOrderDocument({
+//     payload,
+//     outputPath,
+//     profile: finalProfile,
+//     orderSource,
+//     approvalSource,
+//   });
+// };
+
+// const evaluateFinalDocument = async ({ pdfPath, payload }) => {
+//   const layoutResult = await validateLayout(pdfPath, {
+//     documentType: "order_print_pdf",
+//     markers: {},
+//   });
+
+//   const pages = Array.isArray(layoutResult?.pages) ? layoutResult.pages : [];
+//   const hardViolations = Array.isArray(layoutResult?.hardViolations)
+//     ? layoutResult.hardViolations
+//     : [];
+
+//   const hasLayoutError = hardViolations.length > 0;
+
+//   let signatureCheck = {
+//     detached: false,
+//     reason: "final_signature_check_skipped_for_print_pdf",
+//     debug: {},
+//   };
+
+//   try {
+//     if (typeof detectDetachedSignature === "function") {
+//       signatureCheck = await detectDetachedSignature(pdfPath, payload);
+//     }
+//   } catch (error) {
+//     console.warn(`${LOG_PREFIX} detectDetachedSignature failed`);
+//     console.warn(error);
+//   }
+
+//   return {
+//     pages,
+//     hardViolations,
+//     hasLayoutError,
+//     signatureCheck,
+//     hasDetachedSignature: Boolean(signatureCheck?.detached),
+//   };
+// };
+
+// const buildFinalResult = ({
+//   finalDocxPath,
+//   finalPdfPath,
+//   orderResult,
+//   approvalResult,
+//   finalProfile,
+//   finalEvaluation,
+//   fallbackUsed,
+//   generationArtifact,
+// }) => ({
+//   status:
+//     !finalEvaluation.hasLayoutError && !finalEvaluation.hasDetachedSignature
+//       ? "passed"
+//       : "best_effort",
+//   profile: {
+//     orderProfile: orderResult.profileName,
+//     approvalProfile: approvalResult.profileName,
+//   },
+//   layoutCheck: {
+//     order: {
+//       status: orderResult.status || "passed",
+//       profile: orderResult.profileName,
+//       variant: orderResult.selectedVariant || "base",
+//       pages: orderResult.pages,
+//       layoutFlags: orderResult.layoutFlags || null,
+//       systemicWhitespace: orderResult.systemicWhitespace || null,
+//     },
+//     approval: {
+//       status: approvalResult.status,
+//       profile: approvalResult.profileName,
+//       pages: approvalResult.pages,
+//     },
+//     finalOrder: {
+//       status:
+//         !finalEvaluation.hasLayoutError && !finalEvaluation.hasDetachedSignature
+//           ? "passed"
+//           : "best_effort",
+//       profile: orderResult.profileName,
+//       pages: finalEvaluation.pages,
+//       hardViolations: finalEvaluation.hardViolations,
+//       detachedSignature: finalEvaluation.hasDetachedSignature,
+//       detachedSignatureReason: finalEvaluation.signatureCheck?.reason || null,
+//       detachedSignatureDebug: finalEvaluation.signatureCheck?.debug || {},
+//     },
+//   },
+//   resolvedProfile: finalProfile,
+//   outputPath: finalPdfPath,
+//   pdfPath: finalPdfPath,
+//   docxPath: finalDocxPath,
+//   generationResult: {
+//     docxPath: finalDocxPath,
+//     pdfPath: finalPdfPath,
+//     preparedPrintSettings: generationArtifact?.preparedPrintSettings || null,
+//     assemblerPrintSettings: generationArtifact?.assemblerPrintSettings || null,
+//     pdfMeta: generationArtifact?.pdfMeta || null,
+//     pdfValidation: generationArtifact?.pdfValidation || null,
+//     mergedDocxValidation: generationArtifact?.mergedDocxValidation || null,
+//   },
+//   fallbackUsed,
+// });
+
+// const runOrderGeneration = async (report, job) => {
+//   console.log(`${LOG_PREFIX} entered job=${job._id}`);
+
+//   const documentConfig = documents.order;
+
+//   if (!documentConfig) {
+//     throw new Error("Document config not found for type: order");
+//   }
+
+//   const payload = buildPayload(report);
+//   const { orderProfiles = [], approvalProfiles = [] } =
+//     documentConfig.profiles || {};
+//   const generationPolicy = documentConfig.generationPolicy || {};
+
+//   const maxFinalFallbackAttempts = Number.isInteger(
+//     generationPolicy.maxFinalFallbackAttempts,
+//   )
+//     ? generationPolicy.maxFinalFallbackAttempts
+//     : 1;
+
+//   const finalDocxPath = buildFinalDocxPath(job);
+//   const pdfDir = buildPdfDir();
+//   const finalPdfPath = buildPdfPath(finalDocxPath, pdfDir);
+
+//   const tempArtifacts = [];
+//   const fallbackArtifacts = [];
+
+//   console.log(
+//     `${LOG_PREFIX} config loaded job=${job._id} orderProfiles=${orderProfiles.length} approvalProfiles=${approvalProfiles.length}`,
+//   );
+//   console.log(`${LOG_PREFIX} finalDocxPath=${finalDocxPath}`);
+//   console.log(`${LOG_PREFIX} finalPdfPath=${finalPdfPath}`);
+//   console.log(
+//     `${LOG_PREFIX} maxFinalFallbackAttempts=${maxFinalFallbackAttempts}`,
+//   );
+//   console.log(
+//     `${LOG_PREFIX} requested printSettings=${JSON.stringify(payload?.printSettings || null)}`,
+//   );
+
+//   try {
+//     const orderSelection = await findNextGoodOrderCandidate({
+//       payload,
+//       job,
+//       orderProfiles,
+//       startIndex: 0,
+//     });
+
+//     tempArtifacts.push(...(orderSelection.artifacts || []));
+
+//     const selectedOrder = orderSelection.selected;
+
+//     if (!selectedOrder) {
+//       throw new Error("No good order profile found");
+//     }
+
+//     console.log(
+//       `${LOG_PREFIX} selected order profile=${selectedOrder.profileName} index=${selectedOrder.profileIndex} variant=${selectedOrder.selectedVariant}`,
+//     );
+
+//     const approvalResult = await runApprovalSelection({
+//       payload,
+//       job,
+//       profiles: approvalProfiles,
+//     });
+
+//     tempArtifacts.push(...(approvalResult.artifacts || []));
+
+//     console.log(
+//       `${LOG_PREFIX} selected approval profile=${approvalResult.profileName}`,
+//     );
+
+//     let activeOrderResult = {
+//       status: selectedOrder.status || "passed",
+//       profileName: selectedOrder.profileName,
+//       profile: selectedOrder.profile,
+//       selectedVariant: selectedOrder.selectedVariant,
+//       pages: selectedOrder.pages,
+//       layout: selectedOrder.layout,
+//       layoutFlags: selectedOrder.layoutFlags,
+//       systemicWhitespace: selectedOrder.systemicWhitespace,
+//       docxPath: selectedOrder.docxPath,
+//       pdfPath: selectedOrder.pdfPath,
+//       profileIndex: selectedOrder.profileIndex,
+//     };
+
+//     let finalProfile = {
+//       orderProfile: activeOrderResult.profile,
+//       approvalProfile: approvalResult.profile,
+//     };
+
+//     await cleanupFileIfExists(finalDocxPath);
+//     await cleanupFileIfExists(finalPdfPath);
+
+//     const cleanOrderSource = await prepareCleanFinalOrderSource({
+//       job,
+//       sourceDocxPath: activeOrderResult.docxPath,
+//       artifacts: tempArtifacts,
+//       suffix: "order_final_source",
+//       orderFormatting: activeOrderResult?.profile?.orderFormatting || null,
+//       payload,
+//     });
+
+//     let generationArtifact = await generateFinalOrderArtifact({
+//       payload,
+//       outputPath: finalDocxPath,
+//       finalProfile,
+//       orderSource: {
+//         docxPath: cleanOrderSource.docxPath,
+//         pdfPath: cleanOrderSource.pdfPath,
+//       },
+//       approvalSource: {
+//         docxPath: approvalResult.docxPath,
+//         pdfPath: approvalResult.pdfPath,
+//       },
+//     });
+
+//     let finalEvaluation = await evaluateFinalDocument({
+//       pdfPath: finalPdfPath,
+//       payload,
+//     });
+
+//     let fallbackUsed = false;
+//     let nextSearchIndex = activeOrderResult.profileIndex + 1;
+//     let attempts = 0;
+
+//     while (
+//       finalEvaluation.hasDetachedSignature &&
+//       attempts < maxFinalFallbackAttempts
+//     ) {
+//       attempts += 1;
+
+//       console.warn(
+//         `${LOG_PREFIX} final detached signature detected for profile=${activeOrderResult.profileName}; fallback attempt=${attempts}`,
+//       );
+
+//       const nextOrderSelection = await findNextGoodOrderCandidate({
+//         payload,
+//         job,
+//         orderProfiles,
+//         startIndex: nextSearchIndex,
+//       });
+
+//       tempArtifacts.push(...(nextOrderSelection.artifacts || []));
+
+//       const nextOrder = nextOrderSelection.selected;
+
+//       if (!nextOrder) {
+//         console.warn(
+//           `${LOG_PREFIX} no additional good order profile found for final fallback`,
+//         );
+//         break;
+//       }
+
+//       nextSearchIndex = nextOrder.profileIndex + 1;
+
+//       activeOrderResult = {
+//         status: nextOrder.status || "passed",
+//         profileName: nextOrder.profileName,
+//         profile: nextOrder.profile,
+//         selectedVariant: nextOrder.selectedVariant,
+//         pages: nextOrder.pages,
+//         layout: nextOrder.layout,
+//         layoutFlags: nextOrder.layoutFlags,
+//         systemicWhitespace: nextOrder.systemicWhitespace,
+//         docxPath: nextOrder.docxPath,
+//         pdfPath: nextOrder.pdfPath,
+//         profileIndex: nextOrder.profileIndex,
+//       };
+
+//       finalProfile = {
+//         orderProfile: activeOrderResult.profile,
+//         approvalProfile: approvalResult.profile,
+//       };
+
+//       const fallbackFinalDocxPath = buildFinalCandidateDocxPath(
+//         job,
+//         `fallback_${attempts}`,
+//       );
+//       const fallbackFinalPdfPath = buildPdfPath(fallbackFinalDocxPath, pdfDir);
+
+//       fallbackArtifacts.push(fallbackFinalDocxPath, fallbackFinalPdfPath);
+
+//       await cleanupFileIfExists(fallbackFinalDocxPath);
+//       await cleanupFileIfExists(fallbackFinalPdfPath);
+
+//       const fallbackCleanOrderSource = await prepareCleanFinalOrderSource({
+//         job,
+//         sourceDocxPath: activeOrderResult.docxPath,
+//         artifacts: tempArtifacts,
+//         suffix: `order_final_source_fallback_${attempts}`,
+//         orderFormatting: activeOrderResult?.profile?.orderFormatting || null,
+//         payload,
+//       });
+
+//       const fallbackArtifact = await generateFinalOrderArtifact({
+//         payload,
+//         outputPath: fallbackFinalDocxPath,
+//         finalProfile,
+//         orderSource: {
+//           docxPath: fallbackCleanOrderSource.docxPath,
+//           pdfPath: fallbackCleanOrderSource.pdfPath,
+//         },
+//         approvalSource: {
+//           docxPath: approvalResult.docxPath,
+//           pdfPath: approvalResult.pdfPath,
+//         },
+//       });
+
+//       const fallbackPdfPath = fallbackArtifact?.pdfPath || fallbackFinalPdfPath;
+
+//       const fallbackEvaluation = await evaluateFinalDocument({
+//         pdfPath: fallbackPdfPath,
+//         payload,
+//       });
+
+//       if (!fallbackEvaluation.hasDetachedSignature) {
+//         await cleanupFileIfExists(finalDocxPath);
+//         await cleanupFileIfExists(finalPdfPath);
+//         await fs.copyFile(fallbackFinalDocxPath, finalDocxPath);
+//         await fs.copyFile(fallbackPdfPath, finalPdfPath);
+
+//         finalEvaluation = fallbackEvaluation;
+//         generationArtifact = {
+//           ...fallbackArtifact,
+//           docxPath: finalDocxPath,
+//           pdfPath: finalPdfPath,
+//           pdfMeta: fallbackArtifact?.pdfMeta
+//             ? {
+//                 ...fallbackArtifact.pdfMeta,
+//                 outputPdfPath: finalPdfPath,
+//               }
+//             : null,
+//           pdfValidation: fallbackArtifact?.pdfValidation
+//             ? {
+//                 ...fallbackArtifact.pdfValidation,
+//                 pdfPath: finalPdfPath,
+//               }
+//             : null,
+//         };
+//         fallbackUsed = true;
+//         break;
+//       }
+//     }
+
+//     console.log(`${LOG_PREFIX} completed job=${job._id}`);
+//     console.log(
+//       `${LOG_PREFIX} final output docx=${finalDocxPath} pdf=${finalPdfPath}`,
+//     );
+
+//     return buildFinalResult({
+//       finalDocxPath,
+//       finalPdfPath,
+//       orderResult: activeOrderResult,
+//       approvalResult,
+//       finalProfile,
+//       finalEvaluation,
+//       fallbackUsed,
+//       generationArtifact,
+//     });
+//   } catch (error) {
+//     console.error(`${LOG_PREFIX} failed job=${job._id}`);
+//     console.error(error);
+//     throw error;
+//   } finally {
+//     console.log(`${LOG_PREFIX} finally start job=${job._id}`);
+
+//     if (DEBUG_KEEP_ARTIFACTS) {
+//       console.log(
+//         `${LOG_PREFIX} cleanup skipped because DEBUG_KEEP_ARTIFACTS=true`,
+//       );
+//     } else {
+//       await sleep(1000);
+
+//       const artifactsToCleanup = [
+//         ...new Set([...tempArtifacts, ...fallbackArtifacts]),
+//       ];
+
+//       if (artifactsToCleanup.length) {
+//         await cleanupArtifacts(artifactsToCleanup);
+//       }
+
+//       await cleanupJobArtifactsByPrefix(job._id, {
+//         keepDocxNames: [`${job._id}_nakaz.docx`],
+//         keepPdfNames: [`${job._id}_nakaz.pdf`],
+//       });
+
+//       await sleep(1500);
+
+//       await cleanupJobArtifactsByPrefix(job._id, {
+//         keepDocxNames: [`${job._id}_nakaz.docx`],
+//         keepPdfNames: [`${job._id}_nakaz.pdf`],
+//       });
+
+//       console.log(`${LOG_PREFIX} cleanup completed job=${job._id}`);
+//     }
+
+//     console.log(`${LOG_PREFIX} finally end job=${job._id}`);
+//   }
+// };
+
+// module.exports = runOrderGeneration;
 const fs = require("fs/promises");
 const path = require("path");
 
@@ -5012,7 +6067,7 @@ const cleanupArtifacts = async (paths) => {
   console.log(`${LOG_PREFIX} cleanupArtifacts end`);
 };
 
-const cleanupJobArtifactsByPrefix = async (
+const listJobArtifactsByPrefix = async (
   jobId,
   { keepDocxNames = [], keepPdfNames = [] } = {},
 ) => {
@@ -5022,37 +6077,114 @@ const cleanupJobArtifactsByPrefix = async (
   const keepDocxSet = new Set(keepDocxNames.filter(Boolean));
   const keepPdfSet = new Set(keepPdfNames.filter(Boolean));
 
-  const cleanupDir = async (dirPath, keepSet) => {
+  const collectDir = async (dirPath, keepSet) => {
     let entries = [];
 
     try {
       entries = await fs.readdir(dirPath, { withFileTypes: true });
     } catch (error) {
       if (error.code === "ENOENT") {
-        return;
+        return [];
       }
       throw error;
     }
 
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      if (!entry.name.startsWith(`${jobId}_`)) continue;
-      if (keepSet.has(entry.name)) continue;
-
-      const fullPath = path.join(dirPath, entry.name);
-      console.log(
-        `${LOG_PREFIX} cleanupJobArtifactsByPrefix candidate=${fullPath}`,
-      );
-      await cleanupFileIfExists(fullPath);
-    }
+    return entries
+      .filter((entry) => entry.isFile())
+      .filter((entry) => entry.name.startsWith(`${jobId}_`))
+      .filter((entry) => !keepSet.has(entry.name))
+      .map((entry) => path.join(dirPath, entry.name));
   };
 
-  console.log(`${LOG_PREFIX} cleanupJobArtifactsByPrefix start job=${jobId}`);
+  const docxFiles = await collectDir(docxDir, keepDocxSet);
+  const pdfFiles = await collectDir(pdfDir, keepPdfSet);
 
-  await cleanupDir(docxDir, keepDocxSet);
-  await cleanupDir(pdfDir, keepPdfSet);
+  return [...docxFiles, ...pdfFiles];
+};
+
+const cleanupJobArtifactsByPrefix = async (
+  jobId,
+  { keepDocxNames = [], keepPdfNames = [] } = {},
+) => {
+  const paths = await listJobArtifactsByPrefix(jobId, {
+    keepDocxNames,
+    keepPdfNames,
+  });
+
+  console.log(
+    `${LOG_PREFIX} cleanupJobArtifactsByPrefix start job=${jobId} count=${paths.length}`,
+  );
+
+  for (const fullPath of paths) {
+    console.log(
+      `${LOG_PREFIX} cleanupJobArtifactsByPrefix candidate=${fullPath}`,
+    );
+    await cleanupFileIfExists(fullPath);
+  }
 
   console.log(`${LOG_PREFIX} cleanupJobArtifactsByPrefix end job=${jobId}`);
+};
+
+const cleanupJobArtifactsByPrefixMultiPass = async (
+  jobId,
+  { keepDocxNames = [], keepPdfNames = [], passes = 5, delayMs = 1500 } = {},
+) => {
+  for (let pass = 1; pass <= passes; pass++) {
+    const remainingBefore = await listJobArtifactsByPrefix(jobId, {
+      keepDocxNames,
+      keepPdfNames,
+    });
+
+    console.log(
+      `${LOG_PREFIX} cleanupJobArtifactsByPrefixMultiPass pass=${pass}/${passes} remainingBefore=${remainingBefore.length}`,
+    );
+
+    if (!remainingBefore.length) {
+      console.log(
+        `${LOG_PREFIX} cleanupJobArtifactsByPrefixMultiPass finished early job=${jobId} pass=${pass}`,
+      );
+      return;
+    }
+
+    await cleanupJobArtifactsByPrefix(jobId, {
+      keepDocxNames,
+      keepPdfNames,
+    });
+
+    const remainingAfter = await listJobArtifactsByPrefix(jobId, {
+      keepDocxNames,
+      keepPdfNames,
+    });
+
+    console.log(
+      `${LOG_PREFIX} cleanupJobArtifactsByPrefixMultiPass pass=${pass}/${passes} remainingAfter=${remainingAfter.length}`,
+    );
+
+    if (!remainingAfter.length) {
+      console.log(
+        `${LOG_PREFIX} cleanupJobArtifactsByPrefixMultiPass completed job=${jobId} pass=${pass}`,
+      );
+      return;
+    }
+
+    if (pass < passes) {
+      await sleep(delayMs);
+    }
+  }
+
+  const leftovers = await listJobArtifactsByPrefix(jobId, {
+    keepDocxNames,
+    keepPdfNames,
+  });
+
+  if (leftovers.length) {
+    console.warn(
+      `${LOG_PREFIX} cleanupJobArtifactsByPrefixMultiPass leftovers job=${jobId} count=${leftovers.length}`,
+    );
+    for (const filePath of leftovers) {
+      console.warn(`${LOG_PREFIX} leftover file=${filePath}`);
+    }
+  }
 };
 
 const formatSignerDate = (value) => {
@@ -5415,7 +6547,7 @@ const findNextGoodOrderCandidate = async ({
         await replaceFile(fallbackDecision.alt.pdfPath, finalPdfPath);
 
         console.log(
-          `${LOG_PREFIX} stop-on-order-profile profile=${result.profileName} variant=bottom1077 reason=accept_alt_bottom1077`,
+          `${LOG_PREFIX} stop-on-order-profile profile=${result.profileName} variant=${path.parse(fallbackDecision.alt.docxPath).name.replace(path.parse(result.docxPath).name + ".", "")} reason=accept_alt_margin_fallback`,
         );
 
         return {
@@ -5426,7 +6558,7 @@ const findNextGoodOrderCandidate = async ({
             profileName: result.profileName,
             profile: result.profile,
             profileIndex: result.profileIndex,
-            selectedVariant: "bottom1077",
+            selectedVariant: "margin-fallback",
             pages: fallbackDecision.alt.layout.pages,
             hardViolations: fallbackDecision.alt.layout.hardViolations,
             marginViolations: fallbackDecision.alt.layout.marginViolations,
@@ -5934,16 +7066,11 @@ const runOrderGeneration = async (report, job) => {
         await cleanupArtifacts(artifactsToCleanup);
       }
 
-      await cleanupJobArtifactsByPrefix(job._id, {
+      await cleanupJobArtifactsByPrefixMultiPass(job._id, {
         keepDocxNames: [`${job._id}_nakaz.docx`],
         keepPdfNames: [`${job._id}_nakaz.pdf`],
-      });
-
-      await sleep(1500);
-
-      await cleanupJobArtifactsByPrefix(job._id, {
-        keepDocxNames: [`${job._id}_nakaz.docx`],
-        keepPdfNames: [`${job._id}_nakaz.pdf`],
+        passes: 5,
+        delayMs: 1500,
       });
 
       console.log(`${LOG_PREFIX} cleanup completed job=${job._id}`);
