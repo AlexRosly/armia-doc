@@ -3,28 +3,7 @@ const { DOMParser, XMLSerializer } = require("@xmldom/xmldom");
 
 const WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
-const getFileText = (zip, name) => {
-  const file = zip.file(name);
-  if (!file) {
-    throw new Error(`DOCX does not contain ${name}`);
-  }
-  return file.asText();
-};
-
-const parseXml = (xml) =>
-  new DOMParser().parseFromString(xml, "application/xml");
-
-const serializeXml = (doc) => new XMLSerializer().serializeToString(doc);
-
-const getBody = (xmlDoc) => {
-  const bodies = xmlDoc.getElementsByTagNameNS(WORD_NS, "body");
-  if (!bodies.length) {
-    throw new Error("Cannot find w:body in word/document.xml");
-  }
-  return bodies[0];
-};
-
-const getDirectChildElements = (node) => {
+const directElements = (node) => {
   const result = [];
   for (let child = node.firstChild; child; child = child.nextSibling) {
     if (child.nodeType === 1) result.push(child);
@@ -32,156 +11,75 @@ const getDirectChildElements = (node) => {
   return result;
 };
 
-const isParagraphNode = (node) =>
-  node &&
-  node.nodeType === 1 &&
-  node.namespaceURI === WORD_NS &&
-  node.localName === "p";
+const isParagraph = (node) =>
+  node?.nodeType === 1 && node.namespaceURI === WORD_NS && node.localName === "p";
 
-const getParagraphText = (pNode) => {
-  let text = "";
-
-  const walk = (node) => {
-    for (let child = node.firstChild; child; child = child.nextSibling) {
-      if (child.nodeType !== 1) continue;
-
-      if (
-        child.namespaceURI === WORD_NS &&
-        child.localName === "t" &&
-        child.textContent
-      ) {
-        text += child.textContent;
-      } else {
-        walk(child);
-      }
-    }
-  };
-
-  walk(pNode);
-
-  return text.replace(/\s+/g, " ").trim();
+const paragraphText = (node) => {
+  const texts = node.getElementsByTagNameNS(WORD_NS, "t");
+  let result = "";
+  for (let i = 0; i < texts.length; i++) result += texts[i].textContent || "";
+  return result.replace(/\s+/g, " ").trim();
 };
 
-const normalizeText = (value = "") =>
-  String(value).replace(/\s+/g, " ").trim().toLowerCase();
-
-const getOrCreateParagraphProperties = (xmlDoc, pNode) => {
-  for (let child = pNode.firstChild; child; child = child.nextSibling) {
-    if (
-      child.nodeType === 1 &&
-      child.namespaceURI === WORD_NS &&
-      child.localName === "pPr"
-    ) {
-      return child;
-    }
+const getOrCreatePPr = (doc, paragraph) => {
+  for (const child of directElements(paragraph)) {
+    if (child.namespaceURI === WORD_NS && child.localName === "pPr") return child;
   }
-
-  const pPr = xmlDoc.createElementNS(WORD_NS, "w:pPr");
-
-  if (pNode.firstChild) {
-    pNode.insertBefore(pPr, pNode.firstChild);
-  } else {
-    pNode.appendChild(pPr);
-  }
-
+  const pPr = doc.createElementNS(WORD_NS, "w:pPr");
+  paragraph.insertBefore(pPr, paragraph.firstChild);
   return pPr;
 };
 
-const hasChildElement = (parent, localName) => {
-  for (let child = parent.firstChild; child; child = child.nextSibling) {
-    if (
-      child.nodeType === 1 &&
-      child.namespaceURI === WORD_NS &&
-      child.localName === localName
-    ) {
-      return true;
+const removeFlag = (pPr, name) => {
+  for (const child of directElements(pPr)) {
+    if (child.namespaceURI === WORD_NS && child.localName === name) {
+      pPr.removeChild(child);
     }
   }
-
-  return false;
 };
 
-const ensureEmptyElement = (xmlDoc, parent, localName) => {
-  if (hasChildElement(parent, localName)) return;
-  const node = xmlDoc.createElementNS(WORD_NS, `w:${localName}`);
-  parent.appendChild(node);
-};
-
-const applyKeepNext = (xmlDoc, pNode) => {
-  const pPr = getOrCreateParagraphProperties(xmlDoc, pNode);
-  ensureEmptyElement(xmlDoc, pPr, "keepNext");
-};
-
-const applyKeepLines = (xmlDoc, pNode) => {
-  const pPr = getOrCreateParagraphProperties(xmlDoc, pNode);
-  ensureEmptyElement(xmlDoc, pPr, "keepLines");
-};
-
-const findParagraphIndexByText = (bodyChildren, targetText) => {
-  const normalizedTarget = normalizeText(targetText);
-
-  for (let i = 0; i < bodyChildren.length; i++) {
-    const node = bodyChildren[i];
-    if (!isParagraphNode(node)) continue;
-
-    const text = normalizeText(getParagraphText(node));
-    if (text.includes(normalizedTarget)) {
-      return i;
-    }
-  }
-
-  return -1;
-};
-
-const findNextNonEmptyParagraphIndex = (bodyChildren, fromIndex) => {
-  for (let i = fromIndex + 1; i < bodyChildren.length; i++) {
-    const node = bodyChildren[i];
-    if (!isParagraphNode(node)) continue;
-
-    const text = getParagraphText(node);
-    if (text) return i;
-  }
-
-  return -1;
+const ensureFlag = (doc, pPr, name) => {
+  const exists = directElements(pPr).some(
+    (child) => child.namespaceURI === WORD_NS && child.localName === name,
+  );
+  if (!exists) pPr.appendChild(doc.createElementNS(WORD_NS, `w:${name}`));
 };
 
 const fixOrderNakazuiuPagination = (buffer, options = {}) => {
-  const { markerText = "НАКАЗУЮ:", keepWithNextParagraph = true } = options;
-
+  const marker = String(options.markerText || "НАКАЗУЮ:").toLowerCase();
   const zip = new PizZip(buffer);
-  const xmlDoc = parseXml(getFileText(zip, "word/document.xml"));
-  const body = getBody(xmlDoc);
-  const bodyChildren = getDirectChildElements(body);
+  const file = zip.file("word/document.xml");
+  if (!file) throw new Error("DOCX does not contain word/document.xml");
 
-  const nakazuiuIndex = findParagraphIndexByText(bodyChildren, markerText);
-  if (nakazuiuIndex === -1) {
-    return buffer;
-  }
-
-  const nakazuiuParagraph = bodyChildren[nakazuiuIndex];
-  applyKeepNext(xmlDoc, nakazuiuParagraph);
-  applyKeepLines(xmlDoc, nakazuiuParagraph);
-
-  const firstPointIndex = findNextNonEmptyParagraphIndex(
-    bodyChildren,
-    nakazuiuIndex,
+  const doc = new DOMParser().parseFromString(file.asText(), "application/xml");
+  const body = doc.getElementsByTagNameNS(WORD_NS, "body")[0];
+  if (!body) return buffer;
+  const children = directElements(body);
+  const markerIndex = children.findIndex(
+    (node) => isParagraph(node) && paragraphText(node).toLowerCase().includes(marker),
   );
+  if (markerIndex < 0) return buffer;
 
-  if (firstPointIndex !== -1) {
-    const firstPointParagraph = bodyChildren[firstPointIndex];
-    applyKeepLines(xmlDoc, firstPointParagraph);
+  // Keep only the label with the first directive paragraph. Do not chain the
+  // first point to the second paragraph: PDF validation enforces two real lines.
+  const markerPPr = getOrCreatePPr(doc, children[markerIndex]);
+  ensureFlag(doc, markerPPr, "keepNext");
+  ensureFlag(doc, markerPPr, "keepLines");
 
-    if (keepWithNextParagraph) {
-      applyKeepNext(xmlDoc, firstPointParagraph);
-    }
+  const firstPoint = children
+    .slice(markerIndex + 1)
+    .find((node) => isParagraph(node) && paragraphText(node));
+
+  if (firstPoint) {
+    const firstPointPPr = getOrCreatePPr(doc, firstPoint);
+    removeFlag(firstPointPPr, "keepNext");
+    removeFlag(firstPointPPr, "keepLines");
+    removeFlag(firstPointPPr, "pageBreakBefore");
+    ensureFlag(doc, firstPointPPr, "widowControl");
   }
 
-  zip.file("word/document.xml", serializeXml(xmlDoc));
-
-  return zip.generate({
-    type: "nodebuffer",
-    compression: "DEFLATE",
-  });
+  zip.file("word/document.xml", new XMLSerializer().serializeToString(doc));
+  return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
 };
 
 module.exports = fixOrderNakazuiuPagination;

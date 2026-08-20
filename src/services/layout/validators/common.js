@@ -1,182 +1,6 @@
-// const CM_IN_POINTS = 28.346;
-// const LINE_MERGE_THRESHOLD = 2;
-
-// const normalizeText = (value = "") =>
-//   String(value)
-//     .replace(/\u00A0/g, " ")
-//     .replace(/\s+/g, " ")
-//     .trim();
-
-// const pushViolation = (violations, code, message, page, meta = {}) => {
-//   violations.push({
-//     code,
-//     message,
-//     page,
-//     ...meta,
-//   });
-// };
-
-// const groupItemsToLines = (items = []) => {
-//   const textItems = items
-//     .filter((item) => normalizeText(item.str))
-//     .map((item) => ({
-//       text: item.str,
-//       x: item.transform?.[4] ?? 0,
-//       y: item.transform?.[5] ?? 0,
-//     }))
-//     .sort((a, b) => {
-//       if (Math.abs(b.y - a.y) > LINE_MERGE_THRESHOLD) {
-//         return b.y - a.y;
-//       }
-//       return a.x - b.x;
-//     });
-
-//   const rawLines = [];
-
-//   for (const item of textItems) {
-//     const line = rawLines.find(
-//       (entry) => Math.abs(entry.y - item.y) <= LINE_MERGE_THRESHOLD,
-//     );
-
-//     if (!line) {
-//       rawLines.push({
-//         y: item.y,
-//         items: [item],
-//       });
-//       continue;
-//     }
-
-//     line.items.push(item);
-//   }
-
-//   return rawLines
-//     .map((line, index) => {
-//       const sortedItems = line.items.sort((a, b) => a.x - b.x);
-//       return {
-//         index,
-//         y: line.y,
-//         text: normalizeText(sortedItems.map((item) => item.text).join(" ")),
-//       };
-//     })
-//     .filter((line) => line.text);
-// };
-
-// const detectBottomMarginStatus = (actualBottomMarginCm, isLastPage) => {
-//   if (actualBottomMarginCm == null) {
-//     return { status: "no_text", deviationCm: 0 };
-//   }
-
-//   if (isLastPage) {
-//     if (actualBottomMarginCm >= 2.4) {
-//       return { status: "last_page_allowed", deviationCm: 0 };
-//     }
-
-//     return {
-//       status: "below_min",
-//       deviationCm: Number((2.4 - actualBottomMarginCm).toFixed(2)),
-//     };
-//   }
-
-//   if (actualBottomMarginCm >= 2.4 && actualBottomMarginCm <= 2.6) {
-//     return { status: "target", deviationCm: 0 };
-//   }
-
-//   if (actualBottomMarginCm < 2.4) {
-//     return {
-//       status: "below_min",
-//       deviationCm: Number((2.4 - actualBottomMarginCm).toFixed(2)),
-//     };
-//   }
-
-//   return {
-//     status: "above_max",
-//     deviationCm: Number((actualBottomMarginCm - 2.6).toFixed(2)),
-//   };
-// };
-
-// const buildPagesFromPdf = async (pdf) => {
-//   const pages = [];
-
-//   for (let i = 1; i <= pdf.numPages; i++) {
-//     const page = await pdf.getPage(i);
-//     const content = await page.getTextContent();
-//     const lines = groupItemsToLines(content.items);
-
-//     let lowestY = Infinity;
-//     content.items.forEach((item) => {
-//       const y = item.transform?.[5];
-//       if (typeof y === "number" && normalizeText(item.str) && y < lowestY) {
-//         lowestY = y;
-//       }
-//     });
-
-//     const actualBottomMarginCm =
-//       lowestY === Infinity ? null : Number((lowestY / CM_IN_POINTS).toFixed(2));
-
-//     const isLastPage = i === pdf.numPages;
-//     const { status, deviationCm } = detectBottomMarginStatus(
-//       actualBottomMarginCm,
-//       isLastPage,
-//     );
-
-//     pages.push({
-//       pageNumber: i,
-//       isLastPage,
-//       actualBottomMarginCm,
-//       status,
-//       deviationCm,
-//       lines,
-//       rawText: lines.map((line) => line.text).join("\n"),
-//     });
-//   }
-
-//   return pages;
-// };
-
-// const validateBottomMargins = (pages, violations) => {
-//   const marginViolations = [];
-
-//   for (const page of pages) {
-//     if (page.isLastPage) {
-//       if (page.status === "below_min" || page.status === "no_text") {
-//         marginViolations.push(page);
-//       }
-//       continue;
-//     }
-
-//     if (page.status !== "target") {
-//       marginViolations.push(page);
-//     }
-//   }
-
-//   return marginViolations;
-// };
-
-// const validateEmptyLastPage = (pages, violations) => {
-//   const lastPage = pages[pages.length - 1];
-//   if (!lastPage) return;
-
-//   const hasText = lastPage.lines.some((line) => normalizeText(line.text));
-//   if (!hasText) {
-//     pushViolation(
-//       violations,
-//       "EMPTY_LAST_PAGE",
-//       "Є порожня остання сторінка",
-//       lastPage.pageNumber,
-//     );
-//   }
-// };
-
-// module.exports = {
-//   normalizeText,
-//   pushViolation,
-//   groupItemsToLines,
-//   buildPagesFromPdf,
-//   validateBottomMargins,
-//   validateEmptyLastPage,
-// };
 const CM_IN_POINTS = 28.346;
 const LINE_MERGE_THRESHOLD = 2;
+const FALLBACK_DESCENT_RATIO = -0.2;
 
 const normalizeText = (value = "") =>
   String(value)
@@ -185,62 +9,90 @@ const normalizeText = (value = "") =>
     .trim();
 
 const pushViolation = (violations, code, message, page, meta = {}) => {
-  violations.push({
-    code,
-    message,
-    page,
-    ...meta,
-  });
+  violations.push({ code, message, page, ...meta });
 };
 
-const groupItemsToLines = (items = []) => {
+const toFiniteNumber = (value, fallback = null) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
+
+const resolveItemHeight = (item = {}) => {
+  const height = Math.abs(toFiniteNumber(item.height, 0));
+  if (height > 0) return height;
+
+  const transform = Array.isArray(item.transform) ? item.transform : [];
+  const verticalScale = Math.hypot(
+    toFiniteNumber(transform[2], 0),
+    toFiniteNumber(transform[3], 0),
+  );
+  if (verticalScale > 0) return verticalScale;
+
+  return Math.hypot(
+    toFiniteNumber(transform[0], 0),
+    toFiniteNumber(transform[1], 0),
+  );
+};
+
+const resolveDescentRatio = (item = {}, styles = {}) => {
+  const descent = toFiniteNumber(styles[item.fontName]?.descent, null);
+  if (descent != null && descent <= 0) return Math.max(-0.5, descent);
+  return FALLBACK_DESCENT_RATIO;
+};
+
+const resolveVisibleTextBottomY = (item = {}, styles = {}) => {
+  const baselineY = toFiniteNumber(item.transform?.[5], null);
+  if (baselineY == null) return null;
+
+  const height = resolveItemHeight(item);
+  if (!(height > 0)) return baselineY;
+  return baselineY + resolveDescentRatio(item, styles) * height;
+};
+
+const groupItemsToLines = (items = [], styles = {}) => {
   const textItems = items
     .filter((item) => normalizeText(item.str))
     .map((item) => ({
       text: item.str,
-      x: item.transform?.[4] ?? 0,
-      y: item.transform?.[5] ?? 0,
-      width: Number(item.width || 0),
-      height: Number(item.height || 0),
+      x: toFiniteNumber(item.transform?.[4], 0),
+      y: toFiniteNumber(item.transform?.[5], 0),
+      bottomY: resolveVisibleTextBottomY(item, styles),
+      width: toFiniteNumber(item.width, 0),
+      height: resolveItemHeight(item),
     }))
     .sort((a, b) => {
-      if (Math.abs(b.y - a.y) > LINE_MERGE_THRESHOLD) {
-        return b.y - a.y;
-      }
+      if (Math.abs(b.y - a.y) > LINE_MERGE_THRESHOLD) return b.y - a.y;
       return a.x - b.x;
     });
 
   const rawLines = [];
-
   for (const item of textItems) {
     const line = rawLines.find(
       (entry) => Math.abs(entry.y - item.y) <= LINE_MERGE_THRESHOLD,
     );
-
-    if (!line) {
-      rawLines.push({
-        y: item.y,
-        items: [item],
-      });
-      continue;
-    }
-
-    line.items.push(item);
+    if (line) line.items.push(item);
+    else rawLines.push({ y: item.y, items: [item] });
   }
 
   return rawLines
     .map((line, index) => {
       const sortedItems = line.items.sort((a, b) => a.x - b.x);
-
+      const bottoms = sortedItems
+        .map((item) => item.bottomY)
+        .filter(Number.isFinite);
       return {
         index,
         y: line.y,
+        bottomY: bottoms.length ? Math.min(...bottoms) : line.y,
         text: normalizeText(sortedItems.map((item) => item.text).join(" ")),
         items: sortedItems,
       };
     })
     .filter((line) => line.text);
 };
+
+const pointsToCm = (points) =>
+  Number((Number(points) / CM_IN_POINTS).toFixed(2));
 
 const buildPagesFromPdf = async (pdf) => {
   const pages = [];
@@ -249,26 +101,35 @@ const buildPagesFromPdf = async (pdf) => {
     const page = await pdf.getPage(i);
     const viewport = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
-    const lines = groupItemsToLines(content.items);
+    const lines = groupItemsToLines(content.items, content.styles || {});
 
-    let lowestY = Infinity;
+    const baselines = lines.map((line) => line.y).filter(Number.isFinite);
+    const visibleBottoms = lines
+      .map((line) => line.bottomY)
+      .filter(Number.isFinite);
+    const lowestBaselineY = baselines.length ? Math.min(...baselines) : null;
+    const lowestVisibleBottomY = visibleBottoms.length
+      ? Math.min(...visibleBottoms)
+      : null;
 
-    content.items.forEach((item) => {
-      const y = item.transform?.[5];
-      if (typeof y === "number" && normalizeText(item.str) && y < lowestY) {
-        lowestY = y;
-      }
-    });
-
-    const actualBottomMarginCm =
-      lowestY === Infinity ? null : Number((lowestY / CM_IN_POINTS).toFixed(2));
+    const baselineBottomMarginCm =
+      lowestBaselineY == null ? null : pointsToCm(lowestBaselineY);
+    const actualBottomTextGapCm =
+      lowestVisibleBottomY == null ? null : pointsToCm(lowestVisibleBottomY);
 
     pages.push({
       pageNumber: i,
       isLastPage: i === pdf.numPages,
       width: viewport.width,
       height: viewport.height,
-      actualBottomMarginCm,
+
+      // Compatibility: act/approval continue to use the legacy baseline metric.
+      actualBottomMarginCm: baselineBottomMarginCm,
+      baselineBottomMarginCm,
+
+      // Report/order strict validation uses the visible lower edge of text.
+      actualBottomTextGapCm,
+      bottomMetric: "baseline_and_visible_text_bottom",
       lines,
       rawText: lines.map((line) => line.text).join("\n"),
     });
@@ -277,115 +138,46 @@ const buildPagesFromPdf = async (pdf) => {
   return pages;
 };
 
-// const validateBottomMargins = (pages, options = {}) => {
-//   const minAllowedBottomMarginCm = Number(
-//     options.minAllowedBottomMarginCm ?? 1.9,
-//   );
-//   const maxAllowedBottomMarginCm = Number(
-//     options.maxAllowedBottomMarginCm ?? 3.5,
-//   );
-
-//   const violations = [];
-
-//   for (const page of pages) {
-//     if (page.actualBottomMarginCm == null) {
-//       if (page.isLastPage) {
-//         violations.push({
-//           pageNumber: page.pageNumber,
-//           status: "no_text",
-//           actualBottomMarginCm: null,
-//           deviationCm: 0,
-//         });
-//       }
-//       continue;
-//     }
-
-//     if (page.actualBottomMarginCm < minAllowedBottomMarginCm) {
-//       violations.push({
-//         pageNumber: page.pageNumber,
-//         status: "below_min",
-//         actualBottomMarginCm: page.actualBottomMarginCm,
-//         deviationCm: Number(
-//           (minAllowedBottomMarginCm - page.actualBottomMarginCm).toFixed(2),
-//         ),
-//       });
-//       continue;
-//     }
-
-//     if (
-//       !page.isLastPage &&
-//       page.actualBottomMarginCm > maxAllowedBottomMarginCm
-//     ) {
-//       violations.push({
-//         pageNumber: page.pageNumber,
-//         status: "above_max",
-//         actualBottomMarginCm: page.actualBottomMarginCm,
-//         deviationCm: Number(
-//           (page.actualBottomMarginCm - maxAllowedBottomMarginCm).toFixed(2),
-//         ),
-//       });
-//     }
-//   }
-
-//   return violations;
-// };
+const resolveMetric = (page, metricField) => {
+  const value = Number(page?.[metricField]);
+  return Number.isFinite(value) ? value : null;
+};
 
 const validateBottomMargins = (pages, options = {}) => {
   const minAllowedBottomMarginCm = Number(
     options.minAllowedBottomMarginCm ?? 1.9,
   );
-
-  // Здесь верхнюю границу держим мягкой.
-  // Системный завышенный хвост отдельно детектится через
-  // detectSystemicBottomWhitespace(...).
   const maxAllowedBottomMarginCm = Number(
-    options.maxAllowedBottomMarginCm ?? 3.2,
+    options.maxAllowedBottomMarginCm ?? 2.1,
   );
-
+  const metricField = options.metricField || "actualBottomMarginCm";
   const violations = [];
 
   for (const page of pages) {
-    if (page.actualBottomMarginCm == null) {
-      if (page.isLastPage) {
-        violations.push({
-          pageNumber: page.pageNumber,
-          status: "no_text",
-          actualBottomMarginCm: null,
-          deviationCm: 0,
-        });
-      }
-      continue;
-    }
+    const actual = resolveMetric(page, metricField);
+    if (actual == null) continue;
 
-    // Слишком маленький нижний отступ — это реальная проблема:
-    // текст слишком низко прижат к низу страницы.
-    if (page.actualBottomMarginCm < minAllowedBottomMarginCm) {
+    if (actual < minAllowedBottomMarginCm) {
       violations.push({
         pageNumber: page.pageNumber,
         status: "below_min",
-        actualBottomMarginCm: page.actualBottomMarginCm,
-        deviationCm: Number(
-          (minAllowedBottomMarginCm - page.actualBottomMarginCm).toFixed(2),
-        ),
+        severity: "unsafe",
+        actualBottomMarginCm: actual,
+        metricField,
+        deviationCm: Number((minAllowedBottomMarginCm - actual).toFixed(2)),
       });
       continue;
     }
 
-    // Слишком большой нижний отступ фиксируем только как мягкое
-    // отклонение на непоследних страницах.
-    // Основное решение по системному хвосту принимает
-    // detectSystemicBottomWhitespace.
-    if (
-      !page.isLastPage &&
-      page.actualBottomMarginCm > maxAllowedBottomMarginCm
-    ) {
+    // The last page may have an arbitrarily larger blank area.
+    if (!page.isLastPage && actual > maxAllowedBottomMarginCm) {
       violations.push({
         pageNumber: page.pageNumber,
         status: "above_max",
-        actualBottomMarginCm: page.actualBottomMarginCm,
-        deviationCm: Number(
-          (page.actualBottomMarginCm - maxAllowedBottomMarginCm).toFixed(2),
-        ),
+        severity: "underfilled",
+        actualBottomMarginCm: actual,
+        metricField,
+        deviationCm: Number((actual - maxAllowedBottomMarginCm).toFixed(2)),
       });
     }
   }
@@ -396,9 +188,7 @@ const validateBottomMargins = (pages, options = {}) => {
 const validateEmptyLastPage = (pages, violations) => {
   const lastPage = pages[pages.length - 1];
   if (!lastPage) return;
-
-  const hasText = lastPage.lines.some((line) => normalizeText(line.text));
-  if (!hasText) {
+  if (!lastPage.lines.some((line) => normalizeText(line.text))) {
     pushViolation(
       violations,
       "EMPTY_LAST_PAGE",
@@ -408,89 +198,15 @@ const validateEmptyLastPage = (pages, violations) => {
   }
 };
 
-// const detectSystemicBottomWhitespace = (pages, options = {}) => {
-//   const expectedBottomMarginCm = Number(options.expectedBottomMarginCm ?? 2.0);
-
-//   const thresholdCm = Number(
-//     options.thresholdCm ?? Math.max(expectedBottomMarginCm + 0.8, 2.8),
-//   );
-
-//   const minShare = Number(options.minShare ?? 0.5);
-
-//   const analyzablePages = pages.filter(
-//     (page) =>
-//       !page.isLastPage &&
-//       page.actualBottomMarginCm != null &&
-//       page.lines.some((line) => normalizeText(line.text)),
-//   );
-
-//   if (!analyzablePages.length) {
-//     return {
-//       triggered: false,
-//       score: 0,
-//       expectedBottomMarginCm,
-//       thresholdCm,
-//       minShare,
-//       pagesOverThreshold: 0,
-//       pageCount: 0,
-//       share: 0,
-//       avgBottomMarginCm: null,
-//       maxBottomMarginCm: null,
-//       pages: [],
-//     };
-//   }
-
-//   const pagesOverThreshold = analyzablePages.filter(
-//     (page) => page.actualBottomMarginCm > thresholdCm,
-//   );
-
-//   const share = pagesOverThreshold.length / analyzablePages.length;
-
-//   const avgBottomMarginCm =
-//     analyzablePages.reduce(
-//       (sum, page) => sum + Number(page.actualBottomMarginCm || 0),
-//       0,
-//     ) / analyzablePages.length;
-
-//   const maxBottomMarginCm = Math.max(
-//     ...analyzablePages.map((page) => Number(page.actualBottomMarginCm || 0)),
-//   );
-
-//   return {
-//     triggered: share >= minShare,
-//     score: Number(avgBottomMarginCm.toFixed(2)),
-//     expectedBottomMarginCm,
-//     thresholdCm,
-//     minShare,
-//     pagesOverThreshold: pagesOverThreshold.length,
-//     pageCount: analyzablePages.length,
-//     share: Number(share.toFixed(3)),
-//     avgBottomMarginCm: Number(avgBottomMarginCm.toFixed(2)),
-//     maxBottomMarginCm: Number(maxBottomMarginCm.toFixed(2)),
-//     pages: pagesOverThreshold.map((page) => ({
-//       pageNumber: page.pageNumber,
-//       actualBottomMarginCm: page.actualBottomMarginCm,
-//       deviationCm: Number((page.actualBottomMarginCm - thresholdCm).toFixed(2)),
-//     })),
-//   };
-// };
-
 const detectSystemicBottomWhitespace = (pages, options = {}) => {
   const expectedBottomMarginCm = Number(options.expectedBottomMarginCm ?? 2.0);
-
-  // Раньше порог был слишком мягкий.
-  // Теперь считаем системным хвостом всё, что стабильно заметно выше
-  // ожидаемого поля 2.0 см.
-  const thresholdCm = Number(
-    options.thresholdCm ?? Math.max(expectedBottomMarginCm + 0.4, 2.2),
-  );
-
+  const thresholdCm = Number(options.thresholdCm ?? 2.1);
   const minShare = Number(options.minShare ?? 0.5);
-
+  const metricField = options.metricField || "actualBottomMarginCm";
   const analyzablePages = pages.filter(
     (page) =>
       !page.isLastPage &&
-      page.actualBottomMarginCm != null &&
+      resolveMetric(page, metricField) != null &&
       page.lines.some((line) => normalizeText(line.text)),
   );
 
@@ -501,6 +217,7 @@ const detectSystemicBottomWhitespace = (pages, options = {}) => {
       expectedBottomMarginCm,
       thresholdCm,
       minShare,
+      metricField,
       pagesOverThreshold: 0,
       pageCount: 0,
       share: 0,
@@ -510,37 +227,33 @@ const detectSystemicBottomWhitespace = (pages, options = {}) => {
     };
   }
 
-  const pagesOverThreshold = analyzablePages.filter(
-    (page) => page.actualBottomMarginCm > thresholdCm,
-  );
-
-  const share = pagesOverThreshold.length / analyzablePages.length;
-
-  const avgBottomMarginCm =
-    analyzablePages.reduce(
-      (sum, page) => sum + Number(page.actualBottomMarginCm || 0),
-      0,
-    ) / analyzablePages.length;
-
-  const maxBottomMarginCm = Math.max(
-    ...analyzablePages.map((page) => Number(page.actualBottomMarginCm || 0)),
-  );
+  const actuals = analyzablePages.map((page) => ({
+    page,
+    actual: resolveMetric(page, metricField),
+  }));
+  const over = actuals.filter(({ actual }) => actual > thresholdCm);
+  const share = over.length / actuals.length;
+  const average =
+    actuals.reduce((sum, { actual }) => sum + actual, 0) / actuals.length;
 
   return {
-    triggered: share >= minShare,
-    score: Number(avgBottomMarginCm.toFixed(2)),
+    triggered: over.length > 0 && share >= minShare,
+    score: Number(average.toFixed(2)),
     expectedBottomMarginCm,
     thresholdCm,
     minShare,
-    pagesOverThreshold: pagesOverThreshold.length,
-    pageCount: analyzablePages.length,
+    metricField,
+    pagesOverThreshold: over.length,
+    pageCount: actuals.length,
     share: Number(share.toFixed(3)),
-    avgBottomMarginCm: Number(avgBottomMarginCm.toFixed(2)),
-    maxBottomMarginCm: Number(maxBottomMarginCm.toFixed(2)),
-    pages: pagesOverThreshold.map((page) => ({
+    avgBottomMarginCm: Number(average.toFixed(2)),
+    maxBottomMarginCm: Number(
+      Math.max(...actuals.map(({ actual }) => actual)).toFixed(2),
+    ),
+    pages: over.map(({ page, actual }) => ({
       pageNumber: page.pageNumber,
-      actualBottomMarginCm: page.actualBottomMarginCm,
-      deviationCm: Number((page.actualBottomMarginCm - thresholdCm).toFixed(2)),
+      actualBottomMarginCm: actual,
+      deviationCm: Number((actual - thresholdCm).toFixed(2)),
     })),
   };
 };
