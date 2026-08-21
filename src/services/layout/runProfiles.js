@@ -2,7 +2,7 @@ const fs = require("fs/promises");
 const path = require("path");
 
 const { generateDocx } = require("../docx");
-const { convertToPdf } = require("../pdf");
+const { convertToPdf, convertManyToPdf } = require("../pdf");
 const { applyDocumentPaginationFixes } = require("../word");
 const forceMarkerBlockPageBreak = require("../word/forceMarkerBlockPageBreak");
 const validateLayout = require("./validateLayout");
@@ -29,6 +29,12 @@ const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
 const buildPdfPath = (docxPath, pdfDir) =>
   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const resolveProfileBatchSize = () => {
+  const configured = Number(process.env.PROFILE_CONVERSION_BATCH_SIZE || 4);
+  if (!Number.isFinite(configured)) return 4;
+  return Math.max(1, Math.min(8, Math.floor(configured)));
+};
 
 const cleanupFileIfExists = async (filePath, options = {}) => {
   const retries = Number.isInteger(options.retries) ? options.retries : 6;
@@ -150,6 +156,84 @@ const evaluateCandidate = async ({ payload, profile, profileName, docxPath, cont
       pdfPath,
       artifacts: [docxPath, pdfPath],
     };
+  }
+};
+
+const evaluateReportCandidateBatch = async ({
+  payload,
+  candidates,
+  context,
+}) => {
+  if (candidates.length <= 1) {
+    return Promise.all(
+      candidates.map((candidate) =>
+        evaluateCandidate({ ...candidate, payload, context }),
+      ),
+    );
+  }
+
+  const pdfDir = buildPdfDir();
+
+  try {
+    const prepared = [];
+
+    // DOCX generation stays sequential. Only the expensive LibreOffice startup
+    // is shared by the profiles in this batch.
+    for (const candidate of candidates) {
+      const pdfPath = buildPdfPath(candidate.docxPath, pdfDir);
+      await cleanupFileIfExists(candidate.docxPath);
+      await cleanupFileIfExists(pdfPath);
+      await generateDocx(payload, candidate.docxPath, candidate.profile);
+
+      const source = await fs.readFile(candidate.docxPath);
+      const fixed = applyDocumentPaginationFixes(source, {
+        documentType: "report",
+        reportFormatting: candidate.profile?.reportFormatting,
+      });
+      await fs.writeFile(candidate.docxPath, fixed);
+
+      prepared.push({ ...candidate, pdfPath });
+    }
+
+    await convertManyToPdf(
+      prepared.map((candidate) => candidate.docxPath),
+      pdfDir,
+    );
+
+    const results = [];
+    for (const candidate of prepared) {
+      const layout = await validateLayout(candidate.pdfPath, context);
+      results.push({
+        ok: true,
+        profile: candidate.profileName,
+        profileConfig: candidate.profile,
+        pages: layout.pages,
+        hardViolations: layout.hardViolations,
+        marginViolations: layout.marginViolations,
+        hasLayoutError: !layout.passed,
+        docxPath: candidate.docxPath,
+        pdfPath: candidate.pdfPath,
+        layout,
+        layoutFlags: layout.layoutFlags,
+        systemicWhitespace: layout.systemicWhitespace,
+        artifacts: [candidate.docxPath, candidate.pdfPath],
+        conversionMode: "batch",
+      });
+    }
+    return results;
+  } catch (error) {
+    // Any batch-level anomaly falls back to the exact v3 one-by-one pipeline.
+    // This may redo up to eight candidates, but it cannot change selection.
+    console.warn(
+      `[runProfiles] report batch failed; retrying one by one: ${error.message}`,
+    );
+    const results = [];
+    for (const candidate of candidates) {
+      results.push(
+        await evaluateCandidate({ ...candidate, payload, context }),
+      );
+    }
+    return results;
   }
 };
 
@@ -280,34 +364,57 @@ const runReportProfiles = async (report, job, documentConfig) => {
   const artifacts = [];
   const safeCandidates = [];
   const generatedCandidates = [];
+  const profileBatchSize = resolveProfileBatchSize();
+  const context = reportValidationContext(payload);
 
   try {
-    for (let index = 0; index < profiles.length; index++) {
-      const profile = profiles[index];
-      const result = await evaluateCandidate({
+    for (
+      let batchStart = 0;
+      batchStart < profiles.length;
+      batchStart += profileBatchSize
+    ) {
+      const candidates = profiles
+        .slice(batchStart, batchStart + profileBatchSize)
+        .map((profile, offset) => ({
+          profile,
+          profileName: profile.name,
+          docxPath: buildCandidateDocxPath(job, batchStart + offset),
+        }));
+      const batchResults = await evaluateReportCandidateBatch({
         payload,
-        profile,
-        profileName: profile.name,
-        docxPath: buildCandidateDocxPath(job, index),
-        context: reportValidationContext(payload),
+        candidates,
+        context,
       });
-      artifacts.push(...result.artifacts);
-      if (!result.ok) continue;
-      generatedCandidates.push(result);
 
-      const hardOk = result.hardViolations.length === 0;
-      const markerOk = result.layoutFlags?.proshuOk === true;
-      const signatureOk = result.layoutFlags?.signatureOk === true;
-      if (!hardOk || !markerOk || !signatureOk || hasUnsafeBottom(result)) continue;
+      for (const result of batchResults) artifacts.push(...result.artifacts);
 
-      if (result.layout.passed) {
-        return await promoteCandidate(
-          { ...result, status: "passed", fallbackUsed: false },
-          finalDocxPath,
-          finalPdfPath,
-        );
+      // Results are evaluated in the original manual profile order. Therefore
+      // profile selection and every validation rule remain identical to v3.
+      for (const result of batchResults) {
+        if (!result.ok) continue;
+        generatedCandidates.push(result);
+
+        const hardOk = result.hardViolations.length === 0;
+        const markerOk = result.layoutFlags?.proshuOk === true;
+        const signatureOk = result.layoutFlags?.signatureOk === true;
+        if (
+          !hardOk ||
+          !markerOk ||
+          !signatureOk ||
+          hasUnsafeBottom(result)
+        ) {
+          continue;
+        }
+
+        if (result.layout.passed) {
+          return await promoteCandidate(
+            { ...result, status: "passed", fallbackUsed: false },
+            finalDocxPath,
+            finalPdfPath,
+          );
+        }
+        safeCandidates.push(result);
       }
-      safeCandidates.push(result);
     }
 
     const selected = selectClosestSafeReport(safeCandidates);
