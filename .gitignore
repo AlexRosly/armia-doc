@@ -149,3 +149,10 @@ vite.config.ts.timestamp-*
 /src/services/documents/act/templates/
 /src/services/documents/order/templates/
 /src/services/documents/report/templates/
+
+*.zip
+debug-system-layout.json
+storage/
+word-debug/
+*.pdf
+*.docx
