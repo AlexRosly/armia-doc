@@ -5,6 +5,7 @@ const { convertToPdf, convertManyToPdf } = require("../pdf");
 const { applyDocumentPaginationFixes } = require("../word");
 const forceMarkerBlockPageBreak = require("../word/forceMarkerBlockPageBreak");
 const validateLayout = require("./validateLayout");
+const splitFinalOrderCandidatePdf = require("./splitFinalOrderCandidatePdf");
 const documents = require("../documents");
 const order = require("../documents/order");
 
@@ -97,6 +98,7 @@ const hasUnsafeBottom = (layout) =>
 
 const isOrderSafe = (result) =>
   result.ok &&
+  result.finalApproval?.ok === true &&
   result.layout?.hardViolations?.length === 0 &&
   !hasUnsafeBottom(result.layout) &&
   result.layoutFlags?.nakazuiuOk === true &&
@@ -158,6 +160,7 @@ const wordCompatibilityScore = (result) => {
   const targetDeviations = gaps.map((gap) => Math.abs(targetCm - gap));
 
   return {
+    finalApprovalInvalidCount: result.finalApproval?.ok === true ? 0 : 1,
     floorCm,
     targetCm,
     riskyPageCount: deficits.filter((value) => value > 0).length,
@@ -177,6 +180,7 @@ const compareWordCompatibility = (a, b) => {
   const A = wordCompatibilityScore(a);
   const B = wordCompatibilityScore(b);
   return (
+    A.finalApprovalInvalidCount - B.finalApprovalInvalidCount ||
     A.riskyPageCount - B.riskyPageCount ||
     A.maxClearanceDeficitCm - B.maxClearanceDeficitCm ||
     A.totalClearanceDeficitCm - B.totalClearanceDeficitCm ||
@@ -241,6 +245,7 @@ const bestEffortScore = (result) => {
   const aboveDeviations = above.map((item) => Number(item.deviationCm || 0));
 
   return {
+    finalApprovalInvalidCount: result.finalApproval?.ok === true ? 0 : 1,
     markerMissingCount: countOrderCodes(result, ORDER_MARKER_MISSING_CODES),
     markerPaginationCount: countOrderCodes(
       result,
@@ -270,6 +275,7 @@ const compareBestEffort = (a, b) => {
   const A = bestEffortScore(a);
   const B = bestEffortScore(b);
   return (
+    A.finalApprovalInvalidCount - B.finalApprovalInvalidCount ||
     A.markerMissingCount - B.markerMissingCount ||
     A.markerPaginationCount - B.markerPaginationCount ||
     A.criticalHardCount - B.criticalHardCount ||
@@ -284,6 +290,105 @@ const compareBestEffort = (a, b) => {
   );
 };
 
+const buildSplitPdfPath = (mergedPdfPath, part) =>
+  mergedPdfPath.replace(/\.pdf$/i, `_${part}.pdf`);
+
+const buildOrderCandidatePaths = (job, profileIndex) => {
+  const number = String(profileIndex + 1).padStart(4, "0");
+  const sourceDocxPath = buildDocxPath(job, `order_candidate_${number}`);
+  const finalDocxPath = buildDocxPath(job, `order_final_candidate_${number}`);
+  const mergedPdfPath = buildPdfPath(finalDocxPath);
+  return {
+    sourceDocxPath,
+    finalDocxPath,
+    mergedPdfPath,
+    orderPdfPath: buildSplitPdfPath(mergedPdfPath, "order"),
+    approvalPdfPath: buildSplitPdfPath(mergedPdfPath, "approval"),
+  };
+};
+
+const candidateArtifactPaths = (paths) => [
+  paths.sourceDocxPath,
+  paths.finalDocxPath,
+  paths.mergedPdfPath,
+  paths.orderPdfPath,
+  paths.approvalPdfPath,
+];
+
+const validatePreparedOrderCandidate = async ({
+  preparedCandidate,
+  context,
+  expectedApprovalPageCount = 1,
+}) => {
+  const split = await splitFinalOrderCandidatePdf({
+    mergedPdfPath: preparedCandidate.mergedPdfPath,
+    orderPdfPath: preparedCandidate.orderPdfPath,
+    approvalPdfPath: preparedCandidate.approvalPdfPath,
+    expectedApprovalPageCount,
+  });
+  const [layout, approvalLayout] = await Promise.all([
+    validateLayout(preparedCandidate.orderPdfPath, context),
+    validateLayout(
+      preparedCandidate.approvalPdfPath,
+      buildApprovalValidationContext(),
+    ),
+  ]);
+  const finalApprovalOk =
+    approvalLayout.pages.length === expectedApprovalPageCount &&
+    approvalLayout.hardViolations.length === 0 &&
+    !hasUnsafeBottom(approvalLayout);
+
+  return {
+    ok: true,
+    profile: preparedCandidate.profile,
+    profileName: preparedCandidate.profile.name,
+    profileIndex: preparedCandidate.profileIndex,
+    sourceDocxPath: preparedCandidate.sourceDocxPath,
+    docxPath: preparedCandidate.finalDocxPath,
+    pdfPath: preparedCandidate.orderPdfPath,
+    mergedPdfPath: preparedCandidate.mergedPdfPath,
+    approvalPdfPath: preparedCandidate.approvalPdfPath,
+    pages: layout.pages,
+    layout,
+    layoutFlags: layout.layoutFlags,
+    finalApproval: {
+      ok: finalApprovalOk,
+      pdfPath: preparedCandidate.approvalPdfPath,
+      pages: approvalLayout.pages,
+      layout: approvalLayout,
+    },
+    finalSplit: split,
+    preparedPrintSettings: preparedCandidate.prepared.printSettings,
+    preparedMeta: preparedCandidate.prepared.meta,
+    artifacts: candidateArtifactPaths(preparedCandidate),
+  };
+};
+
+const prepareExactFinalOrderCandidate = async ({
+  payload,
+  job,
+  profile,
+  profileIndex,
+  approvalBuffer,
+}) => {
+  const paths = buildOrderCandidatePaths(job, profileIndex);
+  await cleanupArtifacts(candidateArtifactPaths(paths));
+  await order.generateOrderOnlyDocument(payload, paths.sourceDocxPath, profile);
+
+  // Pagination is fixed before the final merge. The result of the merge and
+  // Word-compatibility pass below is the exact DOCX that will be returned.
+  await applyOrderPaginationFixesOnce(paths.sourceDocxPath, profile, payload);
+  const orderBuffer = await fs.readFile(paths.sourceDocxPath);
+  const prepared = await order.prepareOrderPrintDocument({
+    orderBuffer,
+    approvalBuffer,
+    printSettings: payload?.printSettings,
+  });
+  await fs.writeFile(paths.finalDocxPath, prepared.buffer);
+
+  return { ...paths, profile, profileIndex, prepared };
+};
+
 const repairOrderMarkerPagination = async ({
   candidate,
   payload,
@@ -295,12 +400,26 @@ const repairOrderMarkerPagination = async ({
     /\.docx$/i,
     "_marker_repair.docx",
   );
-  const repairPdfPath = buildPdfPath(repairDocxPath);
-  artifacts.push(repairDocxPath, repairPdfPath);
+  const repairMergedPdfPath = buildPdfPath(repairDocxPath);
+  const repairOrderPdfPath = buildSplitPdfPath(repairMergedPdfPath, "order");
+  const repairApprovalPdfPath = buildSplitPdfPath(
+    repairMergedPdfPath,
+    "approval",
+  );
+  artifacts.push(
+    repairDocxPath,
+    repairMergedPdfPath,
+    repairOrderPdfPath,
+    repairApprovalPdfPath,
+  );
 
   try {
     await cleanupFile(repairDocxPath);
-    await cleanupFile(repairPdfPath);
+    await cleanupArtifacts([
+      repairMergedPdfPath,
+      repairOrderPdfPath,
+      repairApprovalPdfPath,
+    ]);
     const source = await fs.readFile(candidate.docxPath);
     const repaired = forceMarkerBlockPageBreak(source, {
       markerText: "НАКАЗУЮ:",
@@ -308,17 +427,37 @@ const repairOrderMarkerPagination = async ({
     await fs.writeFile(repairDocxPath, repaired);
     await convertToPdf(repairDocxPath, pdfDir());
 
-    const layout = await validateLayout(
-      repairPdfPath,
-      buildOrderValidationContext(payload),
-    );
+    const split = await splitFinalOrderCandidatePdf({
+      mergedPdfPath: repairMergedPdfPath,
+      orderPdfPath: repairOrderPdfPath,
+      approvalPdfPath: repairApprovalPdfPath,
+      expectedApprovalPageCount: 1,
+    });
+    const [layout, approvalLayout] = await Promise.all([
+      validateLayout(repairOrderPdfPath, buildOrderValidationContext(payload)),
+      validateLayout(repairApprovalPdfPath, buildApprovalValidationContext()),
+    ]);
+    const finalApprovalOk =
+      approvalLayout.pages.length === 1 &&
+      approvalLayout.hardViolations.length === 0 &&
+      !hasUnsafeBottom(approvalLayout);
+
     const repairedCandidate = {
       ...candidate,
       docxPath: repairDocxPath,
-      pdfPath: repairPdfPath,
+      pdfPath: repairOrderPdfPath,
+      mergedPdfPath: repairMergedPdfPath,
+      approvalPdfPath: repairApprovalPdfPath,
       pages: layout.pages,
       layout,
       layoutFlags: layout.layoutFlags,
+      finalApproval: {
+        ok: finalApprovalOk,
+        pdfPath: repairApprovalPdfPath,
+        pages: approvalLayout.pages,
+        layout: approvalLayout,
+      },
+      finalSplit: split,
       markerRepairApplied: true,
       markerRepairSucceeded: layout.layoutFlags?.nakazuiuOk === true,
     };
@@ -347,39 +486,31 @@ const applyOrderPaginationFixesOnce = async (docxPath, profile, payload) => {
   await fs.writeFile(docxPath, fixed);
 };
 
-const evaluateOrderCandidate = async ({ payload, job, profile, profileIndex }) => {
-  const suffix = `order_candidate_${String(profileIndex + 1).padStart(4, "0")}`;
-  const docxPath = buildDocxPath(job, suffix);
-  const candidatePdfPath = buildPdfPath(docxPath);
+const evaluateOrderCandidate = async ({
+  payload,
+  job,
+  profile,
+  profileIndex,
+  approvalBuffer,
+  expectedApprovalPageCount = 1,
+}) => {
+  const paths = buildOrderCandidatePaths(job, profileIndex);
 
   try {
-    await cleanupFile(docxPath);
-    await cleanupFile(candidatePdfPath);
-    await order.generateOrderOnlyDocument(payload, docxPath, profile);
-
-    // Normal candidates receive exactly one mutation pass. A second pass is
-    // allowed only on a separate emergency marker-repair copy after PDF proof
-    // of a НАКАЗУЮ: 0-1-line violation.
-    await applyOrderPaginationFixesOnce(docxPath, profile, payload);
-    await convertToPdf(docxPath, pdfDir());
-
-    const layout = await validateLayout(
-      candidatePdfPath,
-      buildOrderValidationContext(payload),
-    );
-
-    return {
-      ok: true,
+    const preparedCandidate = await prepareExactFinalOrderCandidate({
+      payload,
+      job,
       profile,
-      profileName: profile.name,
       profileIndex,
-      docxPath,
-      pdfPath: candidatePdfPath,
-      pages: layout.pages,
-      layout,
-      layoutFlags: layout.layoutFlags,
-      artifacts: [docxPath, candidatePdfPath],
-    };
+      approvalBuffer,
+    });
+    await convertToPdf(preparedCandidate.finalDocxPath, pdfDir());
+    const result = await validatePreparedOrderCandidate({
+      preparedCandidate,
+      context: buildOrderValidationContext(payload),
+      expectedApprovalPageCount,
+    });
+    return { ...result, conversionMode: "single" };
   } catch (error) {
     console.warn(
       `${LOG_PREFIX} order candidate failed profile=${profile.name}: ${error.message}`,
@@ -389,10 +520,13 @@ const evaluateOrderCandidate = async ({ payload, job, profile, profileIndex }) =
       profile,
       profileName: profile.name,
       profileIndex,
-      docxPath,
-      pdfPath: candidatePdfPath,
+      sourceDocxPath: paths.sourceDocxPath,
+      docxPath: paths.finalDocxPath,
+      pdfPath: paths.orderPdfPath,
+      mergedPdfPath: paths.mergedPdfPath,
+      approvalPdfPath: paths.approvalPdfPath,
       error: error.message,
-      artifacts: [docxPath, candidatePdfPath],
+      artifacts: candidateArtifactPaths(paths),
     };
   }
 };
@@ -402,81 +536,83 @@ const evaluateOrderCandidateBatch = async ({
   job,
   candidates,
   context,
+  approvalBuffer,
+  expectedApprovalPageCount = 1,
 }) => {
   if (candidates.length <= 1) {
     const results = [];
     for (const candidate of candidates) {
       results.push(
-        await evaluateOrderCandidate({ ...candidate, payload, job }),
+        await evaluateOrderCandidate({
+          ...candidate,
+          payload,
+          job,
+          approvalBuffer,
+          expectedApprovalPageCount,
+        }),
       );
     }
     return results;
   }
 
+  const prepared = [];
   try {
-    const prepared = [];
-
     for (const candidate of candidates) {
-      const suffix = `order_candidate_${String(
-        candidate.profileIndex + 1,
-      ).padStart(4, "0")}`;
-      const docxPath = buildDocxPath(job, suffix);
-      const pdfPath = buildPdfPath(docxPath);
-
-      await cleanupFile(docxPath);
-      await cleanupFile(pdfPath);
-      await order.generateOrderOnlyDocument(
-        payload,
-        docxPath,
-        candidate.profile,
+      prepared.push(
+        await prepareExactFinalOrderCandidate({
+          payload,
+          job,
+          profile: candidate.profile,
+          profileIndex: candidate.profileIndex,
+          approvalBuffer,
+        }),
       );
-      await applyOrderPaginationFixesOnce(
-        docxPath,
-        candidate.profile,
-        payload,
-      );
-
-      prepared.push({ ...candidate, docxPath, pdfPath });
     }
 
     await convertManyToPdf(
-      prepared.map((candidate) => candidate.docxPath),
+      prepared.map((candidate) => candidate.finalDocxPath),
       pdfDir(),
     );
 
     const results = [];
     for (const candidate of prepared) {
-      const layout = await validateLayout(candidate.pdfPath, context);
-      results.push({
-        ok: true,
-        profile: candidate.profile,
-        profileName: candidate.profile.name,
-        profileIndex: candidate.profileIndex,
-        docxPath: candidate.docxPath,
-        pdfPath: candidate.pdfPath,
-        pages: layout.pages,
-        layout,
-        layoutFlags: layout.layoutFlags,
-        artifacts: [candidate.docxPath, candidate.pdfPath],
-        conversionMode: "batch",
+      const result = await validatePreparedOrderCandidate({
+        preparedCandidate: candidate,
+        context,
+        expectedApprovalPageCount,
       });
+      results.push({ ...result, conversionMode: "batch" });
     }
     return results;
   } catch (error) {
     console.warn(
       `${LOG_PREFIX} order batch failed; retrying one by one: ${error.message}`,
     );
+    await cleanupArtifacts(prepared.flatMap(candidateArtifactPaths));
     const results = [];
     for (const candidate of candidates) {
       results.push(
-        await evaluateOrderCandidate({ ...candidate, payload, job }),
+        await evaluateOrderCandidate({
+          ...candidate,
+          payload,
+          job,
+          approvalBuffer,
+          expectedApprovalPageCount,
+        }),
       );
     }
     return results;
   }
 };
 
-const selectOrderProfile = async ({ payload, job, profiles, artifacts }) => {
+const selectOrderProfile = async ({
+  payload,
+  job,
+  profiles,
+  artifacts,
+  approvalBuffer,
+  expectedApprovalPageCount = 1,
+}) => {
   const safeCandidates = [];
   const generatedCandidates = [];
   const passedCandidates = [];
@@ -501,6 +637,8 @@ const selectOrderProfile = async ({ payload, job, profiles, artifacts }) => {
       job,
       candidates,
       context,
+      approvalBuffer,
+      expectedApprovalPageCount,
     });
 
     for (const result of batchResults) artifacts.push(...result.artifacts);
@@ -594,8 +732,16 @@ const selectOrderProfile = async ({ payload, job, profiles, artifacts }) => {
   };
 };
 
-const evaluateApprovalCandidate = async ({ payload, job, profile, profileIndex }) => {
-  const suffix = `approval_candidate_${String(profileIndex + 1).padStart(3, "0")}`;
+const evaluateApprovalCandidate = async ({
+  payload,
+  job,
+  profile,
+  profileIndex,
+}) => {
+  const suffix = `approval_candidate_${String(profileIndex + 1).padStart(
+    3,
+    "0",
+  )}`;
   const docxPath = buildDocxPath(job, suffix);
   const candidatePdfPath = buildPdfPath(docxPath);
 
@@ -644,7 +790,11 @@ const selectApprovalProfile = async ({ payload, job, profiles, artifacts }) => {
       profileIndex,
     });
     artifacts.push(...result.artifacts);
-    if (!result.ok || result.pages.length !== 1 || hasUnsafeBottom(result.layout)) {
+    if (
+      !result.ok ||
+      result.pages.length !== 1 ||
+      hasUnsafeBottom(result.layout)
+    ) {
       continue;
     }
     if (result.layout.passed) return { ...result, status: "passed" };
@@ -692,13 +842,25 @@ const buildFinalResult = ({
         wordCompatibilityScore(selectedOrder),
     },
     approval: {
-      status: selectedApproval.status,
+      status:
+        selectedOrder.finalApproval?.ok === true
+          ? selectedApproval.status
+          : "best_effort",
       profile: selectedApproval.profileName,
-      pages: selectedApproval.pages,
+      pages: selectedOrder.finalApproval?.pages || selectedApproval.pages,
+      exactFinalOk: selectedOrder.finalApproval?.ok ?? null,
+      hardViolations: selectedOrder.finalApproval?.layout?.hardViolations || [],
+      marginViolations:
+        selectedOrder.finalApproval?.layout?.marginViolations || [],
     },
     finalOrder: {
-      status: "assembled_from_independently_validated_sources",
+      status:
+        selectedOrder.status === "passed"
+          ? "exact_final_docx_passed"
+          : "exact_final_docx_best_effort",
       orderSourceRewrittenAfterValidation: false,
+      validationMode: "render_split_validate_promote_same_bytes",
+      split: selectedOrder.finalSplit || null,
     },
   },
   resolvedProfile: finalProfile,
@@ -713,37 +875,43 @@ const buildFinalResult = ({
     pdfMeta: generationArtifact?.pdfMeta || null,
     pdfValidation: generationArtifact?.pdfValidation || null,
     mergedDocxValidation: generationArtifact?.mergedDocxValidation || null,
+    finalValidationMode: generationArtifact?.finalValidationMode || null,
   },
   fallbackUsed: false,
 });
 
 const runOrderGeneration = async (report, job) => {
   const documentConfig = documents.order;
-  if (!documentConfig) throw new Error("Document config not found for type: order");
+  if (!documentConfig)
+    throw new Error("Document config not found for type: order");
 
   await ensureStorageDirs();
   const payload = buildPayload(report);
   const { orderProfiles = [], approvalProfiles = [] } =
     documentConfig.profiles || {};
   if (!orderProfiles.length) throw new Error("No order profiles configured");
-  if (!approvalProfiles.length) throw new Error("No approval profiles configured");
+  if (!approvalProfiles.length)
+    throw new Error("No approval profiles configured");
 
   const finalDocxPath = buildFinalDocxPath(job);
   const finalPdfPath = buildPdfPath(finalDocxPath);
   const artifacts = [];
 
   try {
-    const selectedOrder = await selectOrderProfile({
-      payload,
-      job,
-      profiles: orderProfiles,
-      artifacts,
-    });
     const selectedApproval = await selectApprovalProfile({
       payload,
       job,
       profiles: approvalProfiles,
       artifacts,
+    });
+    const approvalBuffer = await fs.readFile(selectedApproval.docxPath);
+    const selectedOrder = await selectOrderProfile({
+      payload,
+      job,
+      profiles: orderProfiles,
+      artifacts,
+      approvalBuffer,
+      expectedApprovalPageCount: selectedApproval.pages.length,
     });
     const finalProfile = {
       orderProfile: selectedOrder.profile,
@@ -766,6 +934,18 @@ const runOrderGeneration = async (report, job) => {
         docxPath: selectedApproval.docxPath,
         pdfPath: selectedApproval.pdfPath,
         pageCount: selectedApproval.pages.length,
+      },
+      preparedSource: {
+        docxPath: selectedOrder.docxPath,
+        orderPdfPath: selectedOrder.pdfPath,
+        approvalPdfPath: selectedOrder.approvalPdfPath,
+        orderPageCount: selectedOrder.pages.length,
+        approvalPageCount:
+          selectedOrder.finalApproval?.pages?.length ||
+          selectedApproval.pages.length,
+        printSettings: selectedOrder.preparedPrintSettings,
+        meta: selectedOrder.preparedMeta,
+        split: selectedOrder.finalSplit,
       },
     });
 
