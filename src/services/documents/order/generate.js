@@ -31,6 +31,7 @@ const generateOrderDocument = async ({
   profile,
   orderSource,
   approvalSource,
+  preparedSource,
 }) => {
   if (!profile?.orderProfile?.template) {
     throw new Error("profile.orderProfile.template is required");
@@ -38,13 +39,28 @@ const generateOrderDocument = async ({
   if (!profile?.approvalProfile?.template) {
     throw new Error("profile.approvalProfile.template is required");
   }
-  if (!orderSource?.docxPath || !orderSource?.pdfPath) {
-    throw new Error("orderSource.docxPath and orderSource.pdfPath are required");
-  }
-  if (!approvalSource?.docxPath || !approvalSource?.pdfPath) {
-    throw new Error(
-      "approvalSource.docxPath and approvalSource.pdfPath are required",
-    );
+  const usesExactPreparedSource = Boolean(preparedSource);
+  if (usesExactPreparedSource) {
+    if (
+      !preparedSource?.docxPath ||
+      !preparedSource?.orderPdfPath ||
+      !preparedSource?.approvalPdfPath
+    ) {
+      throw new Error(
+        "preparedSource.docxPath, orderPdfPath and approvalPdfPath are required",
+      );
+    }
+  } else {
+    if (!orderSource?.docxPath || !orderSource?.pdfPath) {
+      throw new Error(
+        "orderSource.docxPath and orderSource.pdfPath are required",
+      );
+    }
+    if (!approvalSource?.docxPath || !approvalSource?.pdfPath) {
+      throw new Error(
+        "approvalSource.docxPath and approvalSource.pdfPath are required",
+      );
+    }
   }
 
   const pdfDir = buildPdfDir();
@@ -57,27 +73,55 @@ const generateOrderDocument = async ({
     await safeUnlink(assembledTempPdfPath);
     await safeUnlink(mergedValidationPdfPath);
 
-    const [orderBuffer, approvalBuffer] = await Promise.all([
-      fs.readFile(orderSource.docxPath),
-      fs.readFile(approvalSource.docxPath),
-    ]);
-    const prepared = await prepareOrderPrintDocument({
-      orderBuffer,
-      approvalBuffer,
-      printSettings: payload?.printSettings,
-    });
-    await fs.writeFile(outputPath, prepared.buffer);
+    let prepared;
+    if (usesExactPreparedSource) {
+      if (path.resolve(preparedSource.docxPath) !== path.resolve(outputPath)) {
+        // Copy, do not rebuild: these are the exact bytes whose rendered order
+        // pages passed the final layout protocol during profile selection.
+        await fs.copyFile(preparedSource.docxPath, outputPath);
+      }
+      prepared = {
+        printSettings: preparedSource.printSettings || payload?.printSettings,
+        meta: {
+          ...(preparedSource.meta || {}),
+          finalValidationMode: "exact_final_docx",
+          split: preparedSource.split || null,
+        },
+      };
+    } else {
+      const [orderBuffer, approvalBuffer] = await Promise.all([
+        fs.readFile(orderSource.docxPath),
+        fs.readFile(approvalSource.docxPath),
+      ]);
+      prepared = await prepareOrderPrintDocument({
+        orderBuffer,
+        approvalBuffer,
+        printSettings: payload?.printSettings,
+      });
+      await fs.writeFile(outputPath, prepared.buffer);
+    }
 
-    // The merged Word file is checked only for structural page preservation.
-    // Layout rules were already checked on the standalone sources.
+    const expectedOrderPageCount = Number(
+      usesExactPreparedSource
+        ? preparedSource.orderPageCount
+        : orderSource.pageCount,
+    );
+    const expectedApprovalPageCount = Number(
+      usesExactPreparedSource
+        ? preparedSource.approvalPageCount
+        : approvalSource.pageCount || 1,
+    );
+
+    // Structural verification does not mutate the DOCX. In exact mode the
+    // layout proof was already made from this same final byte sequence.
     const mergedDocxValidation = await validateGeneratedOrderDocument({
       docxPath: outputPath,
       pdfDir,
       buildPdfPath: (docxPath) =>
         buildMergedValidationPdfPath(docxPath, pdfDir),
       assemblyMeta: prepared.meta,
-      expectedMainOrderPageCount: Number(orderSource.pageCount),
-      expectedApprovalPageCount: Number(approvalSource.pageCount || 1),
+      expectedMainOrderPageCount: expectedOrderPageCount,
+      expectedApprovalPageCount,
     });
 
     if (!mergedDocxValidation.ok) {
@@ -91,11 +135,18 @@ const generateOrderDocument = async ({
       prepared.printSettings,
     );
 
-    // PDF remains the intentionally duplex-aware artifact. It is assembled
-    // from the exact validated standalone PDFs without re-rendering the order.
+    const exactOrderPdfPath = usesExactPreparedSource
+      ? preparedSource.orderPdfPath
+      : orderSource.pdfPath;
+    const exactApprovalPdfPath = usesExactPreparedSource
+      ? preparedSource.approvalPdfPath
+      : approvalSource.pdfPath;
+
+    // PDF remains intentionally duplex-aware. In exact mode both source PDFs
+    // were split from the render of the same final DOCX returned above.
     const printPdfMeta = await assembleOrderPrintPdf({
-      orderPdfPath: orderSource.pdfPath,
-      approvalPdfPath: approvalSource.pdfPath,
+      orderPdfPath: exactOrderPdfPath,
+      approvalPdfPath: exactApprovalPdfPath,
       outputPdfPath: assembledTempPdfPath,
       printSettings: assemblerPrintSettings,
     });
@@ -123,6 +174,9 @@ const generateOrderDocument = async ({
       mergedDocxValidation: mergedDocxValidation.meta,
       preparedPrintSettings: prepared.printSettings,
       assemblerPrintSettings,
+      finalValidationMode: usesExactPreparedSource
+        ? "exact_final_docx"
+        : "legacy_independent_sources",
     };
   } finally {
     await Promise.all([
