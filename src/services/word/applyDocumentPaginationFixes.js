@@ -79,7 +79,6 @@ const fixOrderDirectiveSectionPagination = require("./fixOrderDirectiveSectionPa
 const fixReportProshuPagination = require("./fixReportProshuPagination");
 const fixSignatureTablePagination = require("./fixSignatureTablePagination");
 const normalizeHeaderPageNumber = require("./normalizeHeaderPageNumber");
-const normalizeSectionLayout = require("./normalizeSectionLayout");
 const setBodyWidowControl = require("./setBodyWidowControl");
 
 const ptToTwips = (pt) => Math.round(Number(pt) * 20);
@@ -100,17 +99,6 @@ const applyDocumentPaginationFixes = (buffer, options = {}) => {
   let result = buffer;
 
   if (documentType === "order") {
-    // The 288 DOCX templates are the source of truth. Do not normalize styles,
-    // line spacing, section margins or every paragraph property here.
-    //
-    // Word honors the template's 18 pt document grid while LibreOffice ignores
-    // it during PDF conversion. Removing only w:docGrid keeps every template
-    // spacing value intact and makes both renderers use the paragraph's own
-    // w:spacing settings, preventing a one-line pagination drift in Word.
-    result = normalizeSectionLayout(result, {
-      removeDocGrid: true,
-    });
-
     result = setBodyWidowControl(result, {
       startAfterTexts: ["НАКАЗ"],
       stopBeforeTexts: ["__SIGNATURE_START__"],

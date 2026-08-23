@@ -9,6 +9,11 @@ const documents = require("../documents");
 const order = require("../documents/order");
 
 const LOG_PREFIX = "[runOrderGeneration]";
+const ORDER_BOTTOM_MIN_CM = 1.9;
+const ORDER_BOTTOM_MAX_CM = 2.1;
+const DEFAULT_WORD_SAFE_BOTTOM_FLOOR_CM = 2.05;
+const DEFAULT_WORD_SAFE_BOTTOM_TARGET_CM = 2.08;
+const DEFAULT_WORD_SAFE_EXTRA_PROFILE_COUNT = 32;
 
 const buildPayload = (report) => ({
   ...report.toObject(),
@@ -96,6 +101,95 @@ const isOrderSafe = (result) =>
   !hasUnsafeBottom(result.layout) &&
   result.layoutFlags?.nakazuiuOk === true &&
   result.layoutFlags?.signatureOk === true;
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const resolveNumberFromEnv = (name, fallback) => {
+  const configured = Number(process.env[name]);
+  return Number.isFinite(configured) ? configured : fallback;
+};
+
+const resolveWordSafeBottomFloorCm = () =>
+  clamp(
+    resolveNumberFromEnv(
+      "ORDER_WORD_SAFE_BOTTOM_FLOOR_CM",
+      DEFAULT_WORD_SAFE_BOTTOM_FLOOR_CM,
+    ),
+    ORDER_BOTTOM_MIN_CM,
+    ORDER_BOTTOM_MAX_CM,
+  );
+
+const resolveWordSafeBottomTargetCm = () => {
+  const floor = resolveWordSafeBottomFloorCm();
+  return clamp(
+    resolveNumberFromEnv(
+      "ORDER_WORD_SAFE_BOTTOM_TARGET_CM",
+      DEFAULT_WORD_SAFE_BOTTOM_TARGET_CM,
+    ),
+    floor,
+    ORDER_BOTTOM_MAX_CM,
+  );
+};
+
+const resolveWordSafeExtraProfileCount = () => {
+  const configured = resolveNumberFromEnv(
+    "ORDER_WORD_SAFE_EXTRA_PROFILES",
+    DEFAULT_WORD_SAFE_EXTRA_PROFILE_COUNT,
+  );
+  return Math.max(0, Math.min(96, Math.floor(configured)));
+};
+
+const getNonLastOrderBottomGaps = (result) =>
+  (result?.layout?.pages || [])
+    .filter(
+      (page) =>
+        page?.isLastPage === false &&
+        Array.isArray(page.lines) &&
+        page.lines.some((line) => String(line?.text || "").trim()),
+    )
+    .map((page) => Number(page.actualBottomTextGapCm))
+    .filter(Number.isFinite);
+
+const wordCompatibilityScore = (result) => {
+  const floorCm = resolveWordSafeBottomFloorCm();
+  const targetCm = resolveWordSafeBottomTargetCm();
+  const gaps = getNonLastOrderBottomGaps(result);
+  const deficits = gaps.map((gap) => Math.max(0, floorCm - gap));
+  const targetDeviations = gaps.map((gap) => Math.abs(targetCm - gap));
+
+  return {
+    floorCm,
+    targetCm,
+    riskyPageCount: deficits.filter((value) => value > 0).length,
+    maxClearanceDeficitCm: Math.max(...deficits, 0),
+    totalClearanceDeficitCm: deficits.reduce((sum, value) => sum + value, 0),
+    maxTargetDeviationCm: Math.max(...targetDeviations, 0),
+    totalTargetDeviationCm: targetDeviations.reduce(
+      (sum, value) => sum + value,
+      0,
+    ),
+    gapsCm: gaps,
+    profileIndex: result.profileIndex,
+  };
+};
+
+const compareWordCompatibility = (a, b) => {
+  const A = wordCompatibilityScore(a);
+  const B = wordCompatibilityScore(b);
+  return (
+    A.riskyPageCount - B.riskyPageCount ||
+    A.maxClearanceDeficitCm - B.maxClearanceDeficitCm ||
+    A.totalClearanceDeficitCm - B.totalClearanceDeficitCm ||
+    A.maxTargetDeviationCm - B.maxTargetDeviationCm ||
+    A.totalTargetDeviationCm - B.totalTargetDeviationCm ||
+    A.profileIndex - B.profileIndex
+  );
+};
+
+const isWordCompatibleExactCandidate = (result) =>
+  isOrderSafe(result) &&
+  result.layout?.passed === true &&
+  wordCompatibilityScore(result).riskyPageCount === 0;
 
 const candidateDistance = (result) => {
   const margins = result.layout?.marginViolations || [];
@@ -385,8 +479,11 @@ const evaluateOrderCandidateBatch = async ({
 const selectOrderProfile = async ({ payload, job, profiles, artifacts }) => {
   const safeCandidates = [];
   const generatedCandidates = [];
+  const passedCandidates = [];
   const profileBatchSize = resolveProfileBatchSize();
+  const wordSafeExtraProfileCount = resolveWordSafeExtraProfileCount();
   const context = buildOrderValidationContext(payload);
+  let firstPassedProfileIndex = null;
 
   for (
     let batchStart = 0;
@@ -408,15 +505,58 @@ const selectOrderProfile = async ({ payload, job, profiles, artifacts }) => {
 
     for (const result of batchResults) artifacts.push(...result.artifacts);
 
-    // Keep the original manual profile order and the same first-perfect rule.
+    const wordCompatibleBatchCandidates = [];
+
     for (const result of batchResults) {
       if (result.ok) generatedCandidates.push(result);
       if (!isOrderSafe(result)) continue;
       if (result.layout.passed) {
-        return { ...result, status: "passed", selectedVariant: "template" };
+        passedCandidates.push(result);
+        if (firstPassedProfileIndex == null) {
+          firstPassedProfileIndex = result.profileIndex;
+        }
+        if (isWordCompatibleExactCandidate(result)) {
+          wordCompatibleBatchCandidates.push(result);
+        }
+        continue;
       }
       safeCandidates.push(result);
     }
+
+    if (wordCompatibleBatchCandidates.length) {
+      wordCompatibleBatchCandidates.sort(compareWordCompatibility);
+      const selected = wordCompatibleBatchCandidates[0];
+      return {
+        ...selected,
+        status: "passed",
+        selectedVariant: "template",
+        wordCompatibility: wordCompatibilityScore(selected),
+      };
+    }
+
+    if (
+      firstPassedProfileIndex != null &&
+      batchStart + candidates.length >=
+        firstPassedProfileIndex + 1 + wordSafeExtraProfileCount
+    ) {
+      break;
+    }
+  }
+
+  passedCandidates.sort(compareWordCompatibility);
+  const bestPassedCandidate = passedCandidates[0];
+  if (bestPassedCandidate) {
+    console.warn(
+      `${LOG_PREFIX} exact PDF profile found without full Word clearance; ` +
+        `profile=${bestPassedCandidate.profileName} ` +
+        `wordScore=${JSON.stringify(wordCompatibilityScore(bestPassedCandidate))}`,
+    );
+    return {
+      ...bestPassedCandidate,
+      status: "passed",
+      selectedVariant: "template",
+      wordCompatibility: wordCompatibilityScore(bestPassedCandidate),
+    };
   }
 
   safeCandidates.sort(compareDistance);
@@ -547,6 +687,9 @@ const buildFinalResult = ({
       bestEffortScore: selectedOrder.bestEffortScore || null,
       markerRepairApplied: selectedOrder.markerRepairApplied || false,
       markerRepairSucceeded: selectedOrder.markerRepairSucceeded ?? null,
+      wordCompatibility:
+        selectedOrder.wordCompatibility ||
+        wordCompatibilityScore(selectedOrder),
     },
     approval: {
       status: selectedApproval.status,
