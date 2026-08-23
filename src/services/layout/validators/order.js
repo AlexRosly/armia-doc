@@ -1,18 +1,54 @@
+// const { normalizeText, pushViolation } = require("./common");
+
+// const findOccurrences = (pages, marker) => {
+//   const needle = normalizeText(marker).toLowerCase();
+//   if (!needle) return [];
+
+//   const hits = [];
+//   for (const page of pages) {
+//     for (let lineIndex = 0; lineIndex < page.lines.length; lineIndex++) {
+//       const text = normalizeText(page.lines[lineIndex].text).toLowerCase();
+//       if (text.includes(needle)) {
+//         hits.push({ pageNumber: page.pageNumber, lineIndex, text });
+//       }
+//     }
+//   }
+//   return hits;
+// };
+
 const { normalizeText, pushViolation } = require("./common");
 
+/**
+ * Нормалізація тексту саме для пошуку маркерів у PDF.
+ *
+ * PDF-парсер може повертати:
+ *   "НАКАЗУЮ :"
+ * замість:
+ *   "НАКАЗУЮ:"
+ */
+const normalizeSearchText = (value = "") =>
+  normalizeText(value).replace(/\s+:/g, ":").toLowerCase();
+
 const findOccurrences = (pages, marker) => {
-  const needle = normalizeText(marker).toLowerCase();
+  const needle = normalizeSearchText(marker);
   if (!needle) return [];
 
   const hits = [];
+
   for (const page of pages) {
     for (let lineIndex = 0; lineIndex < page.lines.length; lineIndex++) {
-      const text = normalizeText(page.lines[lineIndex].text).toLowerCase();
+      const text = normalizeSearchText(page.lines[lineIndex].text);
+
       if (text.includes(needle)) {
-        hits.push({ pageNumber: page.pageNumber, lineIndex, text });
+        hits.push({
+          pageNumber: page.pageNumber,
+          lineIndex,
+          text,
+        });
       }
     }
   }
+
   return hits;
 };
 
@@ -64,11 +100,13 @@ const validateNakazuiuRules = (pages, markers, violations) => {
 };
 
 const sortHits = (hits) =>
-  hits.slice().sort((a, b) =>
-    a.pageNumber === b.pageNumber
-      ? a.lineIndex - b.lineIndex
-      : a.pageNumber - b.pageNumber,
-  );
+  hits
+    .slice()
+    .sort((a, b) =>
+      a.pageNumber === b.pageNumber
+        ? a.lineIndex - b.lineIndex
+        : a.pageNumber - b.pageNumber,
+    );
 
 const lastHit = (hits) => {
   const sorted = sortHits(hits);
@@ -79,13 +117,17 @@ const buildNameMarkers = (markers = {}) => {
   const first = normalizeText(markers.signerFirstName);
   const last = normalizeText(markers.signerLastName);
   const full = normalizeText(markers.signerFullName);
-  return [...new Set([
-    full,
-    first && last ? `${first} ${last}` : "",
-    first && last ? `${last} ${first}` : "",
-    last,
-    first,
-  ].filter(Boolean))];
+  return [
+    ...new Set(
+      [
+        full,
+        first && last ? `${first} ${last}` : "",
+        first && last ? `${last} ${first}` : "",
+        last,
+        first,
+      ].filter(Boolean),
+    ),
+  ];
 };
 
 const findSignatureReference = (pages, markers) => {
@@ -122,7 +164,11 @@ const findLocalHits = (page, markers, fromIndex, toIndex) => {
     .filter(([, value]) => value);
 
   const hits = [];
-  for (let i = Math.max(0, fromIndex); i <= Math.min(toIndex, page.lines.length - 1); i++) {
+  for (
+    let i = Math.max(0, fromIndex);
+    i <= Math.min(toIndex, page.lines.length - 1);
+    i++
+  ) {
     const text = normalizeText(page.lines[i].text).toLowerCase();
     for (const [anchor, value] of markerEntries) {
       if (text.includes(value)) hits.push({ lineIndex: i, anchor, text });
@@ -190,7 +236,11 @@ const validateSignatureRules = (pages, markers, violations) => {
     markers,
     previousTailStart,
     previousPage.lines.length - 1,
-  ).filter((hit) => ["position", "rank", "firstName", "lastName", "fullName"].includes(hit.anchor));
+  ).filter((hit) =>
+    ["position", "rank", "firstName", "lastName", "fullName"].includes(
+      hit.anchor,
+    ),
+  );
 
   if (previousTailHits.length) {
     pushViolation(
