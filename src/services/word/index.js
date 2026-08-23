@@ -7,6 +7,7 @@ const fixSignatureTablePagination = require("./fixSignatureTablePagination");
 const fixOrderDirectiveSectionPagination = require("./fixOrderDirectiveSectionPagination");
 const forceReportProshuBlockToNextPage = require("./forceReportProshuBlockToNextPage");
 const setSectionBottomMargin = require("./setSectionBottomMargin");
+const applyOrderWordCompatibilityFixes = require("./applyOrderWordCompatibilityFixes");
 
 module.exports = {
   renderTemplate,
@@ -18,4 +19,5 @@ module.exports = {
   fixOrderDirectiveSectionPagination,
   forceReportProshuBlockToNextPage,
   setSectionBottomMargin,
+  applyOrderWordCompatibilityFixes,
 };

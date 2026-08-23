@@ -142,12 +142,24 @@
 // };
 
 // module.exports = prepareOrderPrintDocument;
-const { mergeDocuments } = require("../../word");
+const {
+  mergeDocuments,
+  applyOrderWordCompatibilityFixes,
+} = require("../../word");
 const PizZip = require("pizzip");
 const {
   ORDER_PRINT_SETTINGS,
   normalizeOrderPrintSettings,
 } = require("./orderPrintSettings");
+
+const ORDER_WORD_BOTTOM_MARGIN_TWIPS = 1077;
+
+const isOrderWordCompatibilityFixEnabled = () =>
+  !["0", "false", "off", "no"].includes(
+    String(process.env.ORDER_WORD_COMPATIBILITY_FIX_ENABLED || "true")
+      .trim()
+      .toLowerCase(),
+  );
 
 const inspectDocxBuffer = (buffer, label) => {
   const zip = new PizZip(buffer);
@@ -213,10 +225,43 @@ const prepareOrderPrintDocument = async ({
 
   const mergedBuffer = mergeDocuments([orderBuffer, approvalBuffer]);
 
+  let wordCompatibleBuffer = mergedBuffer;
+  let wordCompatibility = {
+    enabled: isOrderWordCompatibilityFixEnabled(),
+    applied: false,
+    reason: "not-run",
+  };
+
+  try {
+    const compatibilityResult = applyOrderWordCompatibilityFixes(mergedBuffer, {
+      enabled: wordCompatibility.enabled,
+      bottomMarginTwips: ORDER_WORD_BOTTOM_MARGIN_TWIPS,
+    });
+    wordCompatibleBuffer = compatibilityResult.buffer;
+    wordCompatibility = compatibilityResult.meta;
+  } catch (error) {
+    // Fail open: preserve the previously working merged DOCX instead of
+    // failing the whole generation job on a compatibility-only adjustment.
+    wordCompatibility = {
+      enabled: wordCompatibility.enabled,
+      applied: false,
+      reason: "error",
+      error: error?.message || String(error),
+    };
+    console.warn(
+      "[prepareOrderPrintDocument] Word compatibility fix skipped:",
+      wordCompatibility,
+    );
+  }
+
   inspectDocxBuffer(mergedBuffer, "MERGED BUFFER AFTER MERGE");
+  console.log(
+    "[prepareOrderPrintDocument] Word compatibility:",
+    wordCompatibility,
+  );
 
   return {
-    buffer: mergedBuffer,
+    buffer: wordCompatibleBuffer,
     printSettings: resolvedPrintSettings,
     meta: {
       mode: "merge_order_and_approval_only",
@@ -226,6 +271,7 @@ const prepareOrderPrintDocument = async ({
       requestedPrintMode: printSettings?.printMode || null,
       resolvedPrintMode: ORDER_PRINT_SETTINGS.printMode,
       blankPageStrategy: ORDER_PRINT_SETTINGS.blankPageStrategy,
+      wordCompatibility,
     },
   };
 };
