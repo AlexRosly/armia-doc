@@ -160,20 +160,75 @@ const findLocalHits = (page, markers, fromIndex, toIndex) => {
     ["lastName", markers.signerLastName],
     ["fullName", markers.signerFullName],
   ]
-    .map(([key, value]) => [key, normalizeText(value).toLowerCase()])
+    .map(([key, value]) => [key, normalizeSearchText(value)])
     .filter(([, value]) => value);
 
   const hits = [];
-  for (
-    let i = Math.max(0, fromIndex);
-    i <= Math.min(toIndex, page.lines.length - 1);
-    i++
-  ) {
-    const text = normalizeText(page.lines[i].text).toLowerCase();
-    for (const [anchor, value] of markerEntries) {
-      if (text.includes(value)) hits.push({ lineIndex: i, anchor, text });
+  const firstLineIndex = Math.max(0, fromIndex);
+  const lastLineIndex = Math.min(toIndex, page.lines.length - 1);
+  const entriesWithoutSingleLineHit = [];
+
+  // Prefer ordinary one-line matches. Short values such as a first name must
+  // never be searched across several lines because that would make every
+  // preceding line look like the beginning of the signature block.
+  for (const [anchor, value] of markerEntries) {
+    let foundSingleLine = false;
+
+    for (let i = firstLineIndex; i <= lastLineIndex; i++) {
+      const text = normalizeSearchText(page.lines[i].text);
+      if (!text.includes(value)) continue;
+
+      hits.push({ lineIndex: i, endLineIndex: i, anchor, text });
+      foundSingleLine = true;
+    }
+
+    if (!foundSingleLine && value.includes(" ")) {
+      entriesWithoutSingleLineHit.push([anchor, value]);
     }
   }
+
+  // A long position inside the Word signature table is often wrapped across
+  // two or more PDF lines. Without this span search the validator starts the
+  // signature at the rank/name line and mistakenly counts the wrapped position
+  // itself as the required two lines of preceding document text.
+  const maxSpanLines = 6;
+
+  for (const [anchor, value] of entriesWithoutSingleLineHit) {
+    const spans = [];
+
+    for (let start = firstLineIndex; start <= lastLineIndex; start++) {
+      let combined = "";
+      const maxEnd = Math.min(lastLineIndex, start + maxSpanLines - 1);
+
+      for (let end = start; end <= maxEnd; end++) {
+        combined = normalizeSearchText(
+          `${combined} ${page.lines[end].text}`,
+        );
+        if (!combined.includes(value)) continue;
+
+        spans.push({
+          lineIndex: start,
+          endLineIndex: end,
+          anchor,
+          text: combined,
+          spanLength: end - start + 1,
+        });
+        break;
+      }
+    }
+
+    const shortestSpan = Math.min(
+      ...spans.map((span) => span.spanLength),
+      Number.POSITIVE_INFINITY,
+    );
+
+    hits.push(
+      ...spans
+        .filter((span) => span.spanLength === shortestSpan)
+        .map(({ spanLength, ...span }) => span),
+    );
+  }
+
   return hits;
 };
 
