@@ -21,6 +21,7 @@ const { GenerationJob } = require("../../models");
 
 const STORAGE_DIR_BY_TYPE = {
   docx: "docx",
+  approvalDocx: "docx",
   pdf: "pdf",
   armdoc: "armdoc",
 };

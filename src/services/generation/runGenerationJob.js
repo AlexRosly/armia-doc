@@ -979,6 +979,14 @@ const resolveResultPdfPath = (layoutResult) => {
   throw new Error("Generation result does not contain pdfPath");
 };
 
+const resolveResultApprovalDocxPath = (layoutResult, documentType) => {
+  if (layoutResult?.approvalDocxPath) return layoutResult.approvalDocxPath;
+  if (documentType === "order") {
+    throw new Error("Order generation result does not contain approvalDocxPath");
+  }
+  return null;
+};
+
 const publishJobEvent = async (payload) => {
   try {
     await publishGenerationEvent({
@@ -1095,13 +1103,20 @@ const runGenerationJob = async (report, job) => {
     });
 
     const finalDocxPath = resolveResultDocxPath(layoutResult);
+    const finalApprovalDocxPath = resolveResultApprovalDocxPath(
+      layoutResult,
+      report.documentType,
+    );
     const finalPdfPath = resolveResultPdfPath(layoutResult);
 
     console.log(
-      `[generation] step=resolve-paths job=${job._id} docx=${finalDocxPath} pdf=${finalPdfPath}`,
+      `[generation] step=resolve-paths job=${job._id} docx=${finalDocxPath} approvalDocx=${finalApprovalDocxPath || "n/a"} pdf=${finalPdfPath}`,
     );
 
     await fs.access(finalDocxPath);
+    if (finalApprovalDocxPath) {
+      await fs.access(finalApprovalDocxPath);
+    }
     await fs.access(finalPdfPath);
 
     if (job.mode === "with_armdoc") {
@@ -1114,6 +1129,9 @@ const runGenerationJob = async (report, job) => {
     const expiresAt = new Date(Date.now() + READY_TTL_MS);
     const files = {
       docx: path.basename(finalDocxPath),
+      ...(finalApprovalDocxPath && {
+        approvalDocx: path.basename(finalApprovalDocxPath),
+      }),
       pdf: path.basename(finalPdfPath),
       ...(job.mode === "with_armdoc" && {
         armdoc: path.basename(buildArmdocPath(job)),

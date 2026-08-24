@@ -110,6 +110,11 @@ const buildDownloadsPayload = (job) => {
     downloads.docx = `/api/generation/${job._id}/download/docx`;
   }
 
+  if (job.files?.approvalDocx) {
+    downloads.approvalDocx =
+      `/api/generation/${job._id}/download/approvalDocx`;
+  }
+
   if (job.files?.pdf) {
     downloads.pdf = `/api/generation/${job._id}/download/pdf`;
   }
