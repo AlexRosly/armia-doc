@@ -29,8 +29,15 @@ const { persistAndGenerate } = require("../../services/generation");
 
 const STORAGE_ROOT = path.join(process.cwd(), "storage");
 
+const STORAGE_DIR_BY_TYPE = {
+  docx: "docx",
+  approvalDocx: "docx",
+  pdf: "pdf",
+  armdoc: "armdoc",
+};
+
 const buildFilePath = (type, fileName) =>
-  path.join(STORAGE_ROOT, type, fileName);
+  path.join(STORAGE_ROOT, STORAGE_DIR_BY_TYPE[type] || type, fileName);
 
 const fileExists = async (filePath) => {
   try {

@@ -6,6 +6,7 @@ const { applyDocumentPaginationFixes } = require("../word");
 const forceMarkerBlockPageBreak = require("../word/forceMarkerBlockPageBreak");
 const validateLayout = require("./validateLayout");
 const splitFinalOrderCandidatePdf = require("./splitFinalOrderCandidatePdf");
+const selectStandaloneOrderProfile = require("./selectStandaloneOrderProfile");
 const documents = require("../documents");
 const order = require("../documents/order");
 
@@ -56,6 +57,8 @@ const buildDocxPath = (job, suffix) =>
 const buildPdfPath = (docxPath) =>
   path.join(pdfDir(), `${path.parse(docxPath).name}.pdf`);
 const buildFinalDocxPath = (job) => buildDocxPath(job, "nakaz");
+const buildFinalApprovalDocxPath = (job) =>
+  buildDocxPath(job, "lyst_pohodzhennia");
 
 const resolveProfileBatchSize = () => {
   const configured = Number(process.env.PROFILE_CONVERSION_BATCH_SIZE || 4);
@@ -837,6 +840,7 @@ const selectApprovalProfile = async ({ payload, job, profiles, artifacts }) => {
 
 const buildFinalResult = ({
   finalDocxPath,
+  finalApprovalDocxPath,
   finalPdfPath,
   selectedOrder,
   selectedApproval,
@@ -865,20 +869,15 @@ const buildFinalResult = ({
       markerRepairApplied: selectedOrder.markerRepairApplied || false,
       markerRepairSucceeded: selectedOrder.markerRepairSucceeded ?? null,
       wordCompatibility:
-        selectedOrder.wordCompatibility ||
-        wordCompatibilityScore(selectedOrder),
+        selectedOrder.preparedMeta?.wordCompatibility || null,
     },
     approval: {
-      status:
-        selectedOrder.finalApproval?.ok === true
-          ? selectedApproval.status
-          : "best_effort",
+      status: selectedApproval.status,
       profile: selectedApproval.profileName,
-      pages: selectedOrder.finalApproval?.pages || selectedApproval.pages,
-      exactFinalOk: selectedOrder.finalApproval?.ok ?? null,
-      hardViolations: selectedOrder.finalApproval?.layout?.hardViolations || [],
-      marginViolations:
-        selectedOrder.finalApproval?.layout?.marginViolations || [],
+      pages: selectedApproval.pages,
+      exactFinalOk: selectedApproval.layout?.passed === true,
+      hardViolations: selectedApproval.layout?.hardViolations || [],
+      marginViolations: selectedApproval.layout?.marginViolations || [],
     },
     finalOrder: {
       status:
@@ -886,22 +885,26 @@ const buildFinalResult = ({
           ? "exact_final_docx_passed"
           : "exact_final_docx_best_effort",
       orderSourceRewrittenAfterValidation: false,
-      validationMode: "render_split_validate_promote_same_bytes",
-      split: selectedOrder.finalSplit || null,
+      approvalSourceRewrittenAfterValidation: false,
+      validationMode:
+        "standalone_order_and_approval_render_validate_promote_same_bytes",
+      split: null,
     },
   },
   resolvedProfile: finalProfile,
   outputPath: finalPdfPath,
   pdfPath: finalPdfPath,
   docxPath: finalDocxPath,
+  approvalDocxPath: finalApprovalDocxPath,
   generationResult: {
     docxPath: finalDocxPath,
+    approvalDocxPath: finalApprovalDocxPath,
     pdfPath: finalPdfPath,
     preparedPrintSettings: generationArtifact?.preparedPrintSettings || null,
     assemblerPrintSettings: generationArtifact?.assemblerPrintSettings || null,
     pdfMeta: generationArtifact?.pdfMeta || null,
     pdfValidation: generationArtifact?.pdfValidation || null,
-    mergedDocxValidation: generationArtifact?.mergedDocxValidation || null,
+    mergedDocxValidation: null,
     finalValidationMode: generationArtifact?.finalValidationMode || null,
   },
   fallbackUsed: false,
@@ -921,6 +924,7 @@ const runOrderGeneration = async (report, job) => {
     throw new Error("No approval profiles configured");
 
   const finalDocxPath = buildFinalDocxPath(job);
+  const finalApprovalDocxPath = buildFinalApprovalDocxPath(job);
   const finalPdfPath = buildPdfPath(finalDocxPath);
   const artifacts = [];
 
@@ -932,26 +936,18 @@ const runOrderGeneration = async (report, job) => {
       artifacts,
     });
     const effectiveOrderProfiles = resolveOrderProfilesForRun(orderProfiles);
-    const approvalBuffer = await fs.readFile(selectedApproval.docxPath);
 
-    const selectedOrder = await selectOrderProfile({
+    const selectedOrder = await selectStandaloneOrderProfile({
       payload,
       job,
-      // profiles: orderProfiles,
       profiles: effectiveOrderProfiles,
       artifacts,
-      approvalBuffer,
-      expectedApprovalPageCount: selectedApproval.pages.length,
+      context: buildOrderValidationContext(payload),
     });
-
-    console.log(`${LOG_PREFIX} A/B selected order candidate:`, {
+    console.log(`${LOG_PREFIX} selected standalone order candidate:`, {
       profileName: selectedOrder.profileName,
       forcedProfileName: resolveForcedOrderProfileName() || null,
-      removeDocGrid:
-        selectedOrder.preparedMeta?.wordCompatibility?.removeDocGrid ?? null,
-      removedDocGridCount:
-        selectedOrder.preparedMeta?.wordCompatibility?.removedDocGridCount ??
-        null,
+      validationMode: selectedOrder.preparedMeta?.mode || null,
     });
 
     const finalProfile = {
@@ -960,12 +956,10 @@ const runOrderGeneration = async (report, job) => {
     };
 
     await cleanupFile(finalDocxPath);
+    await cleanupFile(finalApprovalDocxPath);
     await cleanupFile(finalPdfPath);
 
-    const generationArtifact = await order.generateOrderDocument({
-      payload,
-      outputPath: finalDocxPath,
-      profile: finalProfile,
+    const generationArtifact = await order.publishStandaloneOrderArtifacts({
       orderSource: {
         docxPath: selectedOrder.docxPath,
         pdfPath: selectedOrder.pdfPath,
@@ -976,22 +970,16 @@ const runOrderGeneration = async (report, job) => {
         pdfPath: selectedApproval.pdfPath,
         pageCount: selectedApproval.pages.length,
       },
-      preparedSource: {
-        docxPath: selectedOrder.docxPath,
-        orderPdfPath: selectedOrder.pdfPath,
-        approvalPdfPath: selectedOrder.approvalPdfPath,
-        orderPageCount: selectedOrder.pages.length,
-        approvalPageCount:
-          selectedOrder.finalApproval?.pages?.length ||
-          selectedApproval.pages.length,
-        printSettings: selectedOrder.preparedPrintSettings,
-        meta: selectedOrder.preparedMeta,
-        split: selectedOrder.finalSplit,
-      },
+      outputDocxPath: finalDocxPath,
+      outputApprovalDocxPath: finalApprovalDocxPath,
+      outputPdfPath: finalPdfPath,
+      printSettings:
+        payload?.data?.printSettings || payload?.printSettings || {},
     });
 
     return buildFinalResult({
       finalDocxPath,
+      finalApprovalDocxPath,
       finalPdfPath: generationArtifact?.pdfPath || finalPdfPath,
       selectedOrder,
       selectedApproval,

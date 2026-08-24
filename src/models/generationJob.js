@@ -216,6 +216,7 @@ const GenerationJobSchema = Schema(
     },
     files: {
       docx: String,
+      approvalDocx: String,
       pdf: String,
       armdoc: String,
     },
