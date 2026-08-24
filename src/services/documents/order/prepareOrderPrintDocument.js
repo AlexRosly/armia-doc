@@ -154,12 +154,12 @@ const {
 
 const ORDER_WORD_BOTTOM_MARGIN_TWIPS = 1077;
 
-// const isOrderWordCompatibilityFixEnabled = () =>
-//   !["0", "false", "off", "no"].includes(
-//     String(process.env.ORDER_WORD_COMPATIBILITY_FIX_ENABLED || "true")
-//       .trim()
-//       .toLowerCase(),
-//   );
+const isOrderWordCompatibilityFixEnabled = () =>
+  !["0", "false", "off", "no"].includes(
+    String(process.env.ORDER_WORD_COMPATIBILITY_FIX_ENABLED || "true")
+      .trim()
+      .toLowerCase(),
+  );
 const isOrderDocGridRemovalEnabled = () =>
   !["0", "false", "off", "no"].includes(
     String(process.env.ORDER_WORD_REMOVE_DOC_GRID || "true")
