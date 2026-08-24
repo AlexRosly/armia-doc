@@ -154,9 +154,15 @@ const {
 
 const ORDER_WORD_BOTTOM_MARGIN_TWIPS = 1077;
 
-const isOrderWordCompatibilityFixEnabled = () =>
+// const isOrderWordCompatibilityFixEnabled = () =>
+//   !["0", "false", "off", "no"].includes(
+//     String(process.env.ORDER_WORD_COMPATIBILITY_FIX_ENABLED || "true")
+//       .trim()
+//       .toLowerCase(),
+//   );
+const isOrderDocGridRemovalEnabled = () =>
   !["0", "false", "off", "no"].includes(
-    String(process.env.ORDER_WORD_COMPATIBILITY_FIX_ENABLED || "true")
+    String(process.env.ORDER_WORD_REMOVE_DOC_GRID || "true")
       .trim()
       .toLowerCase(),
   );
@@ -233,9 +239,14 @@ const prepareOrderPrintDocument = async ({
   };
 
   try {
+    // const compatibilityResult = applyOrderWordCompatibilityFixes(mergedBuffer, {
+    //   enabled: wordCompatibility.enabled,
+    //   bottomMarginTwips: ORDER_WORD_BOTTOM_MARGIN_TWIPS,
+    // });
     const compatibilityResult = applyOrderWordCompatibilityFixes(mergedBuffer, {
       enabled: wordCompatibility.enabled,
       bottomMarginTwips: ORDER_WORD_BOTTOM_MARGIN_TWIPS,
+      removeDocGrid: isOrderDocGridRemovalEnabled(),
     });
     wordCompatibleBuffer = compatibilityResult.buffer;
     wordCompatibility = compatibilityResult.meta;

@@ -16,6 +16,33 @@ const DEFAULT_WORD_SAFE_BOTTOM_FLOOR_CM = 2.05;
 const DEFAULT_WORD_SAFE_BOTTOM_TARGET_CM = 2.08;
 const DEFAULT_WORD_SAFE_EXTRA_PROFILE_COUNT = 32;
 
+const resolveForcedOrderProfileName = () =>
+  String(process.env.ORDER_AB_FORCE_PROFILE_NAME || "").trim();
+
+const resolveOrderProfilesForRun = (profiles) => {
+  const forcedProfileName = resolveForcedOrderProfileName();
+
+  if (!forcedProfileName) {
+    return profiles;
+  }
+
+  const forcedProfile = profiles.find(
+    (profile) => profile?.name === forcedProfileName,
+  );
+
+  if (!forcedProfile) {
+    throw new Error(
+      `ORDER_AB_FORCE_PROFILE_NAME profile not found: ${forcedProfileName}`,
+    );
+  }
+
+  console.warn(
+    `${LOG_PREFIX} A/B test: forcing order profile=${forcedProfileName}`,
+  );
+
+  return [forcedProfile];
+};
+
 const buildPayload = (report) => ({
   ...report.toObject(),
   documentType: report.documentType,
@@ -904,15 +931,29 @@ const runOrderGeneration = async (report, job) => {
       profiles: approvalProfiles,
       artifacts,
     });
+    const effectiveOrderProfiles = resolveOrderProfilesForRun(orderProfiles);
     const approvalBuffer = await fs.readFile(selectedApproval.docxPath);
+
     const selectedOrder = await selectOrderProfile({
       payload,
       job,
-      profiles: orderProfiles,
+      // profiles: orderProfiles,
+      profiles: effectiveOrderProfiles,
       artifacts,
       approvalBuffer,
       expectedApprovalPageCount: selectedApproval.pages.length,
     });
+
+    console.log(`${LOG_PREFIX} A/B selected order candidate:`, {
+      profileName: selectedOrder.profileName,
+      forcedProfileName: resolveForcedOrderProfileName() || null,
+      removeDocGrid:
+        selectedOrder.preparedMeta?.wordCompatibility?.removeDocGrid ?? null,
+      removedDocGridCount:
+        selectedOrder.preparedMeta?.wordCompatibility?.removedDocGridCount ??
+        null,
+    });
+
     const finalProfile = {
       orderProfile: selectedOrder.profile,
       approvalProfile: selectedApproval.profile,

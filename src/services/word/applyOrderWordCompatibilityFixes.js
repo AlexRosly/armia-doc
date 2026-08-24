@@ -42,9 +42,7 @@ const removeDirectChildren = (parent, localName) => {
 };
 
 const removeAllElements = (xmlDoc, localName) => {
-  const nodes = Array.from(
-    xmlDoc.getElementsByTagNameNS(WORD_NS, localName),
-  );
+  const nodes = Array.from(xmlDoc.getElementsByTagNameNS(WORD_NS, localName));
 
   nodes.forEach((node) => {
     if (node.parentNode) node.parentNode.removeChild(node);
@@ -76,15 +74,15 @@ const buildSkippedResult = (buffer, meta = {}) => ({
     bottomMarginTwips: DEFAULT_ORDER_BOTTOM_MARGIN_TWIPS,
     removedDocGridCount: 0,
     removedLastRenderedPageBreakCount: 0,
+    removeDocGrid,
     ...meta,
   },
 });
 
 const applyOrderWordCompatibilityFixes = (buffer, options = {}) => {
   const enabled = options.enabled !== false;
-  const bottomMarginTwips = resolveBottomMarginTwips(
-    options.bottomMarginTwips,
-  );
+  const removeDocGrid = options.removeDocGrid !== false;
+  const bottomMarginTwips = resolveBottomMarginTwips(options.bottomMarginTwips);
 
   if (!enabled) {
     return {
@@ -96,6 +94,7 @@ const applyOrderWordCompatibilityFixes = (buffer, options = {}) => {
         bottomMarginTwips,
         removedDocGridCount: 0,
         removedLastRenderedPageBreakCount: 0,
+        removeDocGrid,
       },
     };
   }
@@ -158,7 +157,10 @@ const applyOrderWordCompatibilityFixes = (buffer, options = {}) => {
   const previousBottomMarginTwips = getWordAttribute(pageMargins, "bottom");
   pageMargins.setAttribute("w:bottom", String(bottomMarginTwips));
 
-  const removedDocGridCount = removeDirectChildren(orderSection, "docGrid");
+  // const removedDocGridCount = removeDirectChildren(orderSection, "docGrid");
+  const removedDocGridCount = removeDocGrid
+    ? removeDirectChildren(orderSection, "docGrid")
+    : 0;
   const removedLastRenderedPageBreakCount = removeAllElements(
     xmlDoc,
     "lastRenderedPageBreak",
@@ -184,14 +186,12 @@ const applyOrderWordCompatibilityFixes = (buffer, options = {}) => {
         approvalSectionIndex,
         removedDocGridCount,
         removedLastRenderedPageBreakCount,
+        removeDocGrid,
       },
     };
   }
 
-  zip.file(
-    "word/document.xml",
-    new XMLSerializer().serializeToString(xmlDoc),
-  );
+  zip.file("word/document.xml", new XMLSerializer().serializeToString(xmlDoc));
 
   return {
     buffer: zip.generate({
@@ -208,6 +208,7 @@ const applyOrderWordCompatibilityFixes = (buffer, options = {}) => {
       approvalSectionIndex,
       removedDocGridCount,
       removedLastRenderedPageBreakCount,
+      removeDocGrid,
     },
   };
 };
