@@ -116,7 +116,6 @@ const checkStatusRouter = require("./routes/checkStatus");
 const downloadRouter = require("./routes/download");
 const importRouter = require("./routes/armdoc");
 const generationRouter = require("./routes/deleteGeneration");
-const orderWordDownloadsRouter = require("./routes/orderWordDownloads");
 const healthRouter = require("./routes/health");
 
 const app = express();
@@ -196,7 +195,6 @@ app.use("/api/act", createActRouter);
 app.use("/api/check-status", checkStatusRouter);
 app.use("/api/download", downloadRouter);
 app.use("/api/import", importRouter);
-app.use("/api/generation", orderWordDownloadsRouter);
 app.use("/api/generation", generationRouter);
 app.use("/api/health", healthRouter);
 

@@ -5,7 +5,6 @@ const resolveProfilePair = require("./resolveProfilePair");
 const generateOrderOnlyDocument = require("./generateOrderOnlyDocument");
 const generateApprovalOnlyDocument = require("./generateApprovalOnlyDocument");
 const prepareOrderPrintDocument = require("./prepareOrderPrintDocument");
-const extractStandaloneOrderDocument = require("./extractStandaloneOrderDocument");
 const ORDER_PRINT_SETTINGS = require("./orderPrintSettings");
 
 module.exports = {
@@ -16,6 +15,5 @@ module.exports = {
   generateOrderOnlyDocument,
   generateApprovalOnlyDocument,
   prepareOrderPrintDocument,
-  extractStandaloneOrderDocument,
   ORDER_PRINT_SETTINGS,
 };

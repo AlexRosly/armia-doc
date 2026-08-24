@@ -56,8 +56,6 @@ const buildDocxPath = (job, suffix) =>
 const buildPdfPath = (docxPath) =>
   path.join(pdfDir(), `${path.parse(docxPath).name}.pdf`);
 const buildFinalDocxPath = (job) => buildDocxPath(job, "nakaz");
-const buildFinalApprovalDocxPath = (job) =>
-  buildDocxPath(job, "lyst_pohodzhennia");
 
 const resolveProfileBatchSize = () => {
   const configured = Number(process.env.PROFILE_CONVERSION_BATCH_SIZE || 4);
@@ -87,41 +85,6 @@ const cleanupFile = async (filePath) => {
 const cleanupArtifacts = async (artifacts) => {
   for (const filePath of [...new Set(artifacts.filter(Boolean))]) {
     await cleanupFile(filePath);
-  }
-};
-
-const publishStandaloneWordDocuments = async ({
-  mergedDocxPath,
-  approvalSourceDocxPath,
-  orderOutputPath,
-  approvalOutputPath,
-}) => {
-  const orderTempPath = orderOutputPath.replace(/\.docx$/i, ".standalone.tmp.docx");
-  const approvalTempPath = approvalOutputPath.replace(
-    /\.docx$/i,
-    ".standalone.tmp.docx",
-  );
-
-  await cleanupArtifacts([orderTempPath, approvalTempPath, approvalOutputPath]);
-
-  try {
-    const mergedBuffer = await fs.readFile(mergedDocxPath);
-    const standaloneOrder = order.extractStandaloneOrderDocument(mergedBuffer);
-
-    await Promise.all([
-      fs.writeFile(orderTempPath, standaloneOrder.buffer),
-      fs.copyFile(approvalSourceDocxPath, approvalTempPath),
-    ]);
-
-    // Both source files are complete before either public path is promoted.
-    // The PDF was already assembled and validated, so this Word-only step
-    // cannot influence its bytes or pagination.
-    await fs.rename(approvalTempPath, approvalOutputPath);
-    await fs.rename(orderTempPath, orderOutputPath);
-
-    return standaloneOrder.meta;
-  } finally {
-    await cleanupArtifacts([orderTempPath, approvalTempPath]);
   }
 };
 
@@ -874,7 +837,6 @@ const selectApprovalProfile = async ({ payload, job, profiles, artifacts }) => {
 
 const buildFinalResult = ({
   finalDocxPath,
-  finalApprovalDocxPath,
   finalPdfPath,
   selectedOrder,
   selectedApproval,
@@ -925,7 +887,6 @@ const buildFinalResult = ({
           : "exact_final_docx_best_effort",
       orderSourceRewrittenAfterValidation: false,
       validationMode: "render_split_validate_promote_same_bytes",
-      publicWordOutputMode: "standalone_order_and_approval_after_pdf_validation",
       split: selectedOrder.finalSplit || null,
     },
   },
@@ -933,10 +894,8 @@ const buildFinalResult = ({
   outputPath: finalPdfPath,
   pdfPath: finalPdfPath,
   docxPath: finalDocxPath,
-  approvalDocxPath: finalApprovalDocxPath,
   generationResult: {
     docxPath: finalDocxPath,
-    approvalDocxPath: finalApprovalDocxPath,
     pdfPath: finalPdfPath,
     preparedPrintSettings: generationArtifact?.preparedPrintSettings || null,
     assemblerPrintSettings: generationArtifact?.assemblerPrintSettings || null,
@@ -944,7 +903,6 @@ const buildFinalResult = ({
     pdfValidation: generationArtifact?.pdfValidation || null,
     mergedDocxValidation: generationArtifact?.mergedDocxValidation || null,
     finalValidationMode: generationArtifact?.finalValidationMode || null,
-    standaloneWordMeta: generationArtifact?.standaloneWordMeta || null,
   },
   fallbackUsed: false,
 });
@@ -963,7 +921,6 @@ const runOrderGeneration = async (report, job) => {
     throw new Error("No approval profiles configured");
 
   const finalDocxPath = buildFinalDocxPath(job);
-  const finalApprovalDocxPath = buildFinalApprovalDocxPath(job);
   const finalPdfPath = buildPdfPath(finalDocxPath);
   const artifacts = [];
 
@@ -1003,7 +960,6 @@ const runOrderGeneration = async (report, job) => {
     };
 
     await cleanupFile(finalDocxPath);
-    await cleanupFile(finalApprovalDocxPath);
     await cleanupFile(finalPdfPath);
 
     const generationArtifact = await order.generateOrderDocument({
@@ -1034,24 +990,13 @@ const runOrderGeneration = async (report, job) => {
       },
     });
 
-    const standaloneWordMeta = await publishStandaloneWordDocuments({
-      mergedDocxPath: finalDocxPath,
-      approvalSourceDocxPath: selectedApproval.docxPath,
-      orderOutputPath: finalDocxPath,
-      approvalOutputPath: finalApprovalDocxPath,
-    });
-
     return buildFinalResult({
       finalDocxPath,
-      finalApprovalDocxPath,
       finalPdfPath: generationArtifact?.pdfPath || finalPdfPath,
       selectedOrder,
       selectedApproval,
       finalProfile,
-      generationArtifact: {
-        ...generationArtifact,
-        standaloneWordMeta,
-      },
+      generationArtifact,
     });
   } finally {
     await cleanupArtifacts(artifacts);
