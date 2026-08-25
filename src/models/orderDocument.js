@@ -25,7 +25,7 @@ const listOfPropertySchema = Schema(
     unitOfMeasurement: { type: String, default: "" },
     quantity: { type: String, default: "" },
     manufactureYear: { type: String, default: "" },
-    // cost: CostSchema,
+    cost: CostSchema,
   },
   { _id: false },
 );
