@@ -6,7 +6,6 @@ const { applyDocumentPaginationFixes } = require("../word");
 const forceMarkerBlockPageBreak = require("../word/forceMarkerBlockPageBreak");
 const validateLayout = require("./validateLayout");
 const splitFinalOrderCandidatePdf = require("./splitFinalOrderCandidatePdf");
-const selectStandaloneOrderProfile = require("./selectStandaloneOrderProfile");
 const documents = require("../documents");
 const order = require("../documents/order");
 
@@ -17,32 +16,10 @@ const DEFAULT_WORD_SAFE_BOTTOM_FLOOR_CM = 2.05;
 const DEFAULT_WORD_SAFE_BOTTOM_TARGET_CM = 2.08;
 const DEFAULT_WORD_SAFE_EXTRA_PROFILE_COUNT = 32;
 
-const resolveForcedOrderProfileName = () =>
-  String(process.env.ORDER_AB_FORCE_PROFILE_NAME || "").trim();
-
-const resolveOrderProfilesForRun = (profiles) => {
-  const forcedProfileName = resolveForcedOrderProfileName();
-
-  if (!forcedProfileName) {
-    return profiles;
-  }
-
-  const forcedProfile = profiles.find(
-    (profile) => profile?.name === forcedProfileName,
-  );
-
-  if (!forcedProfile) {
-    throw new Error(
-      `ORDER_AB_FORCE_PROFILE_NAME profile not found: ${forcedProfileName}`,
-    );
-  }
-
-  console.warn(
-    `${LOG_PREFIX} A/B test: forcing order profile=${forcedProfileName}`,
-  );
-
-  return [forcedProfile];
-};
+// A/B profile forcing was diagnostic only. It must never narrow production
+// generation to a single candidate, including when PM2 keeps a stale env var.
+const resolveForcedOrderProfileName = () => "";
+const resolveOrderProfilesForRun = (profiles) => profiles;
 
 const buildPayload = (report) => ({
   ...report.toObject(),
@@ -57,8 +34,6 @@ const buildDocxPath = (job, suffix) =>
 const buildPdfPath = (docxPath) =>
   path.join(pdfDir(), `${path.parse(docxPath).name}.pdf`);
 const buildFinalDocxPath = (job) => buildDocxPath(job, "nakaz");
-const buildFinalApprovalDocxPath = (job) =>
-  buildDocxPath(job, "lyst_pohodzhennia");
 
 const resolveProfileBatchSize = () => {
   const configured = Number(process.env.PROFILE_CONVERSION_BATCH_SIZE || 4);
@@ -840,7 +815,6 @@ const selectApprovalProfile = async ({ payload, job, profiles, artifacts }) => {
 
 const buildFinalResult = ({
   finalDocxPath,
-  finalApprovalDocxPath,
   finalPdfPath,
   selectedOrder,
   selectedApproval,
@@ -869,15 +843,20 @@ const buildFinalResult = ({
       markerRepairApplied: selectedOrder.markerRepairApplied || false,
       markerRepairSucceeded: selectedOrder.markerRepairSucceeded ?? null,
       wordCompatibility:
-        selectedOrder.preparedMeta?.wordCompatibility || null,
+        selectedOrder.wordCompatibility ||
+        wordCompatibilityScore(selectedOrder),
     },
     approval: {
-      status: selectedApproval.status,
+      status:
+        selectedOrder.finalApproval?.ok === true
+          ? selectedApproval.status
+          : "best_effort",
       profile: selectedApproval.profileName,
-      pages: selectedApproval.pages,
-      exactFinalOk: selectedApproval.layout?.passed === true,
-      hardViolations: selectedApproval.layout?.hardViolations || [],
-      marginViolations: selectedApproval.layout?.marginViolations || [],
+      pages: selectedOrder.finalApproval?.pages || selectedApproval.pages,
+      exactFinalOk: selectedOrder.finalApproval?.ok ?? null,
+      hardViolations: selectedOrder.finalApproval?.layout?.hardViolations || [],
+      marginViolations:
+        selectedOrder.finalApproval?.layout?.marginViolations || [],
     },
     finalOrder: {
       status:
@@ -885,26 +864,22 @@ const buildFinalResult = ({
           ? "exact_final_docx_passed"
           : "exact_final_docx_best_effort",
       orderSourceRewrittenAfterValidation: false,
-      approvalSourceRewrittenAfterValidation: false,
-      validationMode:
-        "standalone_order_and_approval_render_validate_promote_same_bytes",
-      split: null,
+      validationMode: "render_split_validate_promote_same_bytes",
+      split: selectedOrder.finalSplit || null,
     },
   },
   resolvedProfile: finalProfile,
   outputPath: finalPdfPath,
   pdfPath: finalPdfPath,
   docxPath: finalDocxPath,
-  approvalDocxPath: finalApprovalDocxPath,
   generationResult: {
     docxPath: finalDocxPath,
-    approvalDocxPath: finalApprovalDocxPath,
     pdfPath: finalPdfPath,
     preparedPrintSettings: generationArtifact?.preparedPrintSettings || null,
     assemblerPrintSettings: generationArtifact?.assemblerPrintSettings || null,
     pdfMeta: generationArtifact?.pdfMeta || null,
     pdfValidation: generationArtifact?.pdfValidation || null,
-    mergedDocxValidation: null,
+    mergedDocxValidation: generationArtifact?.mergedDocxValidation || null,
     finalValidationMode: generationArtifact?.finalValidationMode || null,
   },
   fallbackUsed: false,
@@ -924,7 +899,6 @@ const runOrderGeneration = async (report, job) => {
     throw new Error("No approval profiles configured");
 
   const finalDocxPath = buildFinalDocxPath(job);
-  const finalApprovalDocxPath = buildFinalApprovalDocxPath(job);
   const finalPdfPath = buildPdfPath(finalDocxPath);
   const artifacts = [];
 
@@ -936,18 +910,26 @@ const runOrderGeneration = async (report, job) => {
       artifacts,
     });
     const effectiveOrderProfiles = resolveOrderProfilesForRun(orderProfiles);
+    const approvalBuffer = await fs.readFile(selectedApproval.docxPath);
 
-    const selectedOrder = await selectStandaloneOrderProfile({
+    const selectedOrder = await selectOrderProfile({
       payload,
       job,
+      // profiles: orderProfiles,
       profiles: effectiveOrderProfiles,
       artifacts,
-      context: buildOrderValidationContext(payload),
+      approvalBuffer,
+      expectedApprovalPageCount: selectedApproval.pages.length,
     });
-    console.log(`${LOG_PREFIX} selected standalone order candidate:`, {
+
+    console.log(`${LOG_PREFIX} selected order candidate after full search:`, {
       profileName: selectedOrder.profileName,
-      forcedProfileName: resolveForcedOrderProfileName() || null,
-      validationMode: selectedOrder.preparedMeta?.mode || null,
+      evaluatedProfilePoolSize: effectiveOrderProfiles.length,
+      removeDocGrid:
+        selectedOrder.preparedMeta?.wordCompatibility?.removeDocGrid ?? null,
+      removedDocGridCount:
+        selectedOrder.preparedMeta?.wordCompatibility?.removedDocGridCount ??
+        null,
     });
 
     const finalProfile = {
@@ -956,10 +938,12 @@ const runOrderGeneration = async (report, job) => {
     };
 
     await cleanupFile(finalDocxPath);
-    await cleanupFile(finalApprovalDocxPath);
     await cleanupFile(finalPdfPath);
 
-    const generationArtifact = await order.publishStandaloneOrderArtifacts({
+    const generationArtifact = await order.generateOrderDocument({
+      payload,
+      outputPath: finalDocxPath,
+      profile: finalProfile,
       orderSource: {
         docxPath: selectedOrder.docxPath,
         pdfPath: selectedOrder.pdfPath,
@@ -970,16 +954,22 @@ const runOrderGeneration = async (report, job) => {
         pdfPath: selectedApproval.pdfPath,
         pageCount: selectedApproval.pages.length,
       },
-      outputDocxPath: finalDocxPath,
-      outputApprovalDocxPath: finalApprovalDocxPath,
-      outputPdfPath: finalPdfPath,
-      printSettings:
-        payload?.data?.printSettings || payload?.printSettings || {},
+      preparedSource: {
+        docxPath: selectedOrder.docxPath,
+        orderPdfPath: selectedOrder.pdfPath,
+        approvalPdfPath: selectedOrder.approvalPdfPath,
+        orderPageCount: selectedOrder.pages.length,
+        approvalPageCount:
+          selectedOrder.finalApproval?.pages?.length ||
+          selectedApproval.pages.length,
+        printSettings: selectedOrder.preparedPrintSettings,
+        meta: selectedOrder.preparedMeta,
+        split: selectedOrder.finalSplit,
+      },
     });
 
     return buildFinalResult({
       finalDocxPath,
-      finalApprovalDocxPath,
       finalPdfPath: generationArtifact?.pdfPath || finalPdfPath,
       selectedOrder,
       selectedApproval,

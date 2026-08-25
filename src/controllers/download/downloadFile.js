@@ -93,7 +93,6 @@ const assertGenerationJobOwnership = require("../../services/generation/assertGe
 
 const STORAGE_DIR_BY_TYPE = {
   docx: "docx",
-  approvalDocx: "docx",
   pdf: "pdf",
   armdoc: "armdoc",
 };

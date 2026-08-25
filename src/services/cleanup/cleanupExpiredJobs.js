@@ -367,7 +367,6 @@ const STORAGE_ROOT = path.resolve(__dirname, "../../../storage");
 
 const FILE_STORAGE_DIRS = {
   docx: "docx",
-  approvalDocx: "docx",
   pdf: "pdf",
   armdoc: "armdoc",
 };

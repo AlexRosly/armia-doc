@@ -3,13 +3,6 @@ const path = require("path");
 
 const { GenerationJob, documentModels } = require("../../models");
 
-const STORAGE_DIR_BY_TYPE = {
-  docx: "docx",
-  approvalDocx: "docx",
-  pdf: "pdf",
-  armdoc: "armdoc",
-};
-
 const safeDelete = async (filePath) => {
   try {
     await fs.unlink(filePath);
@@ -34,12 +27,7 @@ const deleteGenerationJob = async (jobId) => {
   for (const [type, fileName] of Object.entries(job.files || {})) {
     if (!fileName) continue;
 
-    const storageDir = STORAGE_DIR_BY_TYPE[type];
-    if (!storageDir) continue;
-
-    await safeDelete(
-      path.join(process.cwd(), "storage", storageDir, fileName),
-    );
+    await safeDelete(path.join(process.cwd(), "storage", type, fileName));
   }
 
   //
