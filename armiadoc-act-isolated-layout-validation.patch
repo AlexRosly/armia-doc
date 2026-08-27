@@ -1,0 +1,1603 @@
+diff --git a/src/services/documents/act/buildPropertyGroups.js b/src/services/documents/act/buildPropertyGroups.js
+index 7400822..08b45b8 100644
+--- a/src/services/documents/act/buildPropertyGroups.js
++++ b/src/services/documents/act/buildPropertyGroups.js
+@@ -1,19 +1,22 @@
+-const { buildPropertyText } = require("../shared");
+-
+ const buildPropertyGroups = (lostProperty = []) => {
+   return lostProperty.map((service) => ({
+     service: service.service,
+     totalResidualCostUah: service.totalResidualCostUah,
+ 
+-    items: service.listOfProperty.map((property) => ({
++    items: (service.listOfProperty || []).map((property) => ({
+       itemName: property.itemName || "",
+       nomenclatureCode: property.nomenclatureCode || "",
+       unitOfMeasurement: property.unitOfMeasurement || "",
+       category: property.category || "",
+       quantity: property.quantity || "",
+-      primaryUnitCostUah: property.cost.primaryUnitCostUah || "",
+-      residualUnitCostUah: property.cost.residualUnitCostUah || "",
+-      currency: property.cost.currency || "",
++      primaryUnitCostUah: property.cost?.primaryUnitCostUah || "",
++      residualUnitCostUah: property.cost?.residualUnitCostUah || "",
++      totalResidualCostUah:
++        property.totalResidualCostUah ??
++        property.cost?.totalResidualCostUah ??
++        property.cost?.grandTotalResidualCostUah ??
++        "",
++      currency: property.cost?.currency || "",
+ 
+       technicalCondition: property.technicalCondition || "",
+       note: property.note || "",
+diff --git a/src/services/layout/runActGeneration.js b/src/services/layout/runActGeneration.js
+index 1932206..55d1ce1 100644
+--- a/src/services/layout/runActGeneration.js
++++ b/src/services/layout/runActGeneration.js
+@@ -2,7 +2,8 @@ const fs = require("fs/promises");
+ const path = require("path");
+ 
+ const convertToPdf = require("../pdf/convertToPdf");
+-const validateLayout = require("./validateLayout");
++const validateActDocxGeometry = require("./validateActDocxGeometry");
++const validateActLayout = require("./validateActLayout");
+ 
+ const {
+   generateActDocument,
+@@ -11,9 +12,6 @@ const {
+ const actProfiles = require("../documents/act/profiles");
+ 
+ const DEBUG_ACT_LAYOUT = process.env.ACT_LAYOUT_DEBUG === "1";
+-const MAX_CHECKED_PROFILES = Number(
+-  process.env.ACT_MAX_CHECKED_PROFILES || 1000,
+-);
+ 
+ const buildPayload = (report) => ({
+   ...report.toObject(),
+@@ -34,29 +32,39 @@ const buildCandidateDocxPath = (job, index) =>
+     process.cwd(),
+     "storage",
+     "docx",
+-    `${job._id}__candidate_${String(index).padStart(4, "0")}.docx`,
++    `${job._id}__act_candidate_${String(index).padStart(4, "0")}.docx`,
+   );
+ 
+ const buildPdfPath = (docxPath, pdfDir) =>
+   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
+ 
++const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
++
+ const ensureParentDir = async (filePath) => {
+   await fs.mkdir(path.dirname(filePath), { recursive: true });
+ };
+ 
+-const cleanupFileIfExists = async (filePath) => {
+-  try {
+-    await fs.unlink(filePath);
+-  } catch (error) {
+-    if (error.code !== "ENOENT" && DEBUG_ACT_LAYOUT) {
+-      console.warn(`[runActGeneration] cleanup failed: ${filePath}`);
+-      console.warn(error.message);
++const cleanupFileIfExists = async (filePath, options = {}) => {
++  const retries = Number.isInteger(options.retries) ? options.retries : 6;
++  const delayMs = Number.isInteger(options.delayMs) ? options.delayMs : 300;
++
++  for (let attempt = 0; attempt <= retries; attempt++) {
++    try {
++      await fs.unlink(filePath);
++      return true;
++    } catch (error) {
++      if (error.code === "ENOENT") return true;
++      const retryable = ["EBUSY", "EPERM", "EACCES"].includes(error.code);
++      if (!retryable || attempt === retries) return false;
++      await sleep(delayMs);
+     }
+   }
++
++  return false;
+ };
+ 
+ const cleanupArtifacts = async (paths) => {
+-  for (const filePath of paths) {
++  for (const filePath of [...new Set(paths.filter(Boolean))]) {
+     await cleanupFileIfExists(filePath);
+   }
+ };
+@@ -76,19 +84,64 @@ const isFatalGenerationError = (error) => {
+   );
+ };
+ 
++const normalizeCopiesCount = (value) => {
++  const normalized = String(value ?? "")
++    .replace(/\s/g, "")
++    .replace(",", ".");
++  const number = Number(normalized);
++  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
++};
++
++const normalizePerson = (person = {}) => ({
++  position: person.position || "",
++  rank: person.rank || "",
++  firstName: person.firstName || "",
++  lastName: person.lastName || "",
++  fullName: [person.firstName, person.lastName].filter(Boolean).join(" "),
++});
++
++const buildActValidationContext = (payload) => {
++  const data = payload.data || {};
++  const copiesCount = normalizeCopiesCount(data.actCopies?.count);
++  const copies = Array.isArray(data.actCopies?.copies)
++    ? data.actCopies.copies
++    : [];
++
++  return {
++    documentType: "act",
++    expectedBottomMarginCm: 1.0,
++    minAllowedBottomMarginCm: 0.9,
++    maxAllowedBottomMarginCm: 1.1,
++    systemicWhitespaceThresholdCm: 1.1,
++    systemicWhitespaceMinShare: 0.5,
++    markers: {
++      expectedServiceSubtotalCount: Array.isArray(data.lostProperty)
++        ? data.lostProperty.length
++        : 0,
++      expectedCopiesCount: copies.length || copiesCount,
++      showCommanderConclusion: copiesCount > 1,
++      chairman: normalizePerson(data.commission?.chairman),
++      commissionMembers: (data.commission?.members || []).map(normalizePerson),
++      eventWitnesses: (data.eventWitnesses || []).map(normalizePerson),
++      supplyServiceChiefs: (data.supplyServiceChiefs || []).map(
++        normalizePerson,
++      ),
++      commander: normalizePerson(data.commanderConclusion),
++    },
++  };
++};
++
+ const evaluateCandidate = async ({
+   payload,
+   docxPath,
+   pdfDir,
+   profile,
+   profileName,
+-  tempArtifacts,
++  layoutProfile,
++  validationContext,
+ }) => {
+   const pdfPath = buildPdfPath(docxPath, pdfDir);
+ 
+-  tempArtifacts.add(docxPath);
+-  tempArtifacts.add(pdfPath);
+-
+   try {
+     await ensureParentDir(docxPath);
+     await fs.mkdir(pdfDir, { recursive: true });
+@@ -97,31 +150,31 @@ const evaluateCandidate = async ({
+     await cleanupFileIfExists(pdfPath);
+ 
+     await generateActDocument(payload, docxPath, profile);
++    const docxGeometry = await validateActDocxGeometry(
++      docxPath,
++      layoutProfile,
++    );
+     await convertToPdf(docxPath, pdfDir);
+ 
+-    let pages = [];
+-
+-    try {
+-      pages = await validateLayout(pdfPath);
+-    } catch (validationError) {
+-      if (DEBUG_ACT_LAYOUT) {
+-        console.warn(
+-          `[runActGeneration] validateLayout failed for ${profileName}`,
+-        );
+-        console.warn(validationError.message);
+-      }
+-    }
++    const layout = await validateActLayout(pdfPath, validationContext);
++    layout.docxGeometry = docxGeometry;
++    layout.hardViolations = [
++      ...docxGeometry.hardViolations,
++      ...layout.hardViolations,
++    ];
++    layout.layoutFlags.actBlocksOk = layout.hardViolations.length === 0;
++    layout.passed =
++      layout.hardViolations.length === 0 &&
++      layout.marginViolations.length === 0;
+ 
+-    if (DEBUG_ACT_LAYOUT && pages.length > 0) {
++    if (DEBUG_ACT_LAYOUT) {
+       console.log(
+-        `[runActGeneration] layout result: ${profileName} => ${JSON.stringify(
+-          pages.map((p) => ({
+-            pageNumber: p.pageNumber,
+-            status: p.status,
+-            actualBottomMarginCm: p.actualBottomMarginCm,
+-            deviationCm: p.deviationCm,
+-          })),
+-        )}`,
++        `[runActGeneration] layout result: ${profileName} => ${JSON.stringify({
++          passed: layout.passed,
++          bottomMetric: layout.bottomMetric,
++          hardViolations: layout.hardViolations.map((item) => item.code),
++          marginViolations: layout.marginViolations,
++        })}`,
+       );
+     }
+ 
+@@ -129,9 +182,13 @@ const evaluateCandidate = async ({
+       ok: true,
+       profileName,
+       profile,
+-      pages,
++      pages: layout.pages,
++      hardViolations: layout.hardViolations,
++      marginViolations: layout.marginViolations,
++      layout,
+       docxPath,
+       pdfPath,
++      artifacts: [docxPath, pdfPath],
+     };
+   } catch (error) {
+     if (DEBUG_ACT_LAYOUT) {
+@@ -139,38 +196,69 @@ const evaluateCandidate = async ({
+       console.warn(error.message);
+     }
+ 
+-    if (isFatalGenerationError(error)) {
+-      throw error;
+-    }
++    if (isFatalGenerationError(error)) throw error;
+ 
+     return {
+       ok: false,
+       profileName,
+       profile,
+       pages: [],
++      hardViolations: [],
++      marginViolations: [],
+       error: error.message,
+       docxPath,
+       pdfPath,
++      artifacts: [docxPath, pdfPath],
+     };
+   }
+ };
+ 
+-const finalizeResult = async ({
+-  sourceDocxPath,
++const isSafeCandidate = (candidate) =>
++  candidate.ok &&
++  candidate.hardViolations.length === 0 &&
++  candidate.marginViolations.length === 0;
++
++const promoteCandidate = async ({
++  candidate,
+   finalDocxPath,
+   finalPdfPath,
+-  pdfDir,
+ }) => {
+   await ensureParentDir(finalDocxPath);
+   await ensureParentDir(finalPdfPath);
+-
+   await cleanupFileIfExists(finalDocxPath);
+   await cleanupFileIfExists(finalPdfPath);
+ 
+-  await fs.copyFile(sourceDocxPath, finalDocxPath);
+-  await convertToPdf(finalDocxPath, pdfDir);
++  await fs.rename(candidate.docxPath, finalDocxPath);
++  await fs.rename(candidate.pdfPath, finalPdfPath);
++
++  return {
++    ...candidate,
++    docxPath: finalDocxPath,
++    pdfPath: finalPdfPath,
++  };
+ };
+ 
++const buildResult = (candidate, status) => ({
++  status,
++  profile: candidate.profileName,
++  layoutCheck: {
++    status,
++    profile: candidate.profileName,
++    pages: candidate.pages,
++    hardViolations: candidate.hardViolations,
++    marginViolations: candidate.marginViolations,
++    bottomMetric: candidate.layout.bottomMetric,
++    docxGeometry: candidate.layout.docxGeometry,
++  },
++  resolvedProfile: candidate.profile,
++  pages: candidate.pages,
++  hardViolations: candidate.hardViolations,
++  marginViolations: candidate.marginViolations,
++  outputPath: candidate.docxPath,
++  docxPath: candidate.docxPath,
++  pdfPath: candidate.pdfPath,
++});
++
+ const runActGeneration = async (report, job) => {
+   const payload = buildPayload(report);
+   const layoutProfile = resolveActLayoutProfile(payload);
+@@ -178,25 +266,19 @@ const runActGeneration = async (report, job) => {
+   const pdfDir = buildPdfDir();
+   const finalDocxPath = buildFinalDocxPath(job);
+   const finalPdfPath = buildFinalPdfPath(job);
+-
+-  const tempArtifacts = new Set();
++  const validationContext = buildActValidationContext(payload);
++  const artifacts = [];
+ 
+   if (!profiles || profiles.length === 0) {
+     throw new Error(`Unknown act layoutProfile: ${layoutProfile}`);
+   }
+ 
+-  try {
+-    let checkedCount = 0;
++  const maxCheckedProfiles = profiles.length;
+ 
+-    for (const profile of profiles) {
+-      checkedCount += 1;
+-
+-      if (checkedCount > MAX_CHECKED_PROFILES) {
+-        console.warn(
+-          `[runActGeneration] reached profile limit ${MAX_CHECKED_PROFILES}, stopping search`,
+-        );
+-        break;
+-      }
++  try {
++    for (let index = 0; index < maxCheckedProfiles; index++) {
++      const profile = profiles[index];
++      const checkedCount = index + 1;
+ 
+       if (checkedCount % 25 === 0) {
+         console.log(
+@@ -204,48 +286,42 @@ const runActGeneration = async (report, job) => {
+         );
+       }
+ 
+-      const candidateDocxPath = buildCandidateDocxPath(job, checkedCount);
+-
+       const result = await evaluateCandidate({
+         payload,
+-        docxPath: candidateDocxPath,
++        docxPath: buildCandidateDocxPath(job, checkedCount),
+         pdfDir,
+         profile,
+         profileName: profile.name,
+-        tempArtifacts,
++        layoutProfile,
++        validationContext,
+       });
++      artifacts.push(...result.artifacts);
+ 
+-      if (!result.ok) {
++      if (!isSafeCandidate(result)) {
++        await cleanupArtifacts(result.artifacts);
+         continue;
+       }
+ 
+-      await finalizeResult({
+-        sourceDocxPath: result.docxPath,
++      const promoted = await promoteCandidate({
++        candidate: result,
+         finalDocxPath,
+         finalPdfPath,
+-        pdfDir,
+       });
+-
+-      return {
+-        status: "passed",
+-        profile: result.profileName,
+-        layoutCheck: {
+-          status: "passed",
+-          profile: result.profileName,
+-          pages: result.pages,
+-        },
+-        resolvedProfile: result.profile,
+-        outputPath: finalDocxPath,
+-        docxPath: finalDocxPath,
+-        pdfPath: finalPdfPath,
+-      };
++      console.log(
++        `[runActGeneration] selected first fully valid profile=${profile.name} checked=${checkedCount}`,
++      );
++      return buildResult(promoted, "passed");
+     }
+ 
+-    throw new Error("No valid act template could be generated");
++    throw new Error(
++      `No fully valid act profile found after checking ${maxCheckedProfiles} profiles`,
++    );
+   } finally {
+-    tempArtifacts.delete(finalDocxPath);
+-    tempArtifacts.delete(finalPdfPath);
+-    await cleanupArtifacts(tempArtifacts);
++    await cleanupArtifacts(
++      artifacts.filter(
++        (filePath) => filePath !== finalDocxPath && filePath !== finalPdfPath,
++      ),
++    );
+   }
+ };
+ 
+diff --git a/src/services/layout/validateActDocxGeometry.js b/src/services/layout/validateActDocxGeometry.js
+new file mode 100644
+index 0000000..be91498
+--- /dev/null
++++ b/src/services/layout/validateActDocxGeometry.js
+@@ -0,0 +1,183 @@
++const fs = require("fs/promises");
++
++const WORD_DOCUMENT_PATH = "word/document.xml";
++const WORD_NS =
++  "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
++
++const ACT_DOCX_GEOMETRY = Object.freeze({
++  ACT_LANDSCAPE_V1: Object.freeze({
++    page: Object.freeze({
++      widthTwips: 16838,
++      heightTwips: 11906,
++      orientation: "landscape",
++    }),
++    margins: Object.freeze({
++      top: 567,
++      right: 567,
++      bottom: 567,
++      left: 1417,
++    }),
++  }),
++  ACT_LANDSCAPE_V2: Object.freeze({
++    page: Object.freeze({
++      widthTwips: 16838,
++      heightTwips: 11906,
++      orientation: "landscape",
++    }),
++    margins: Object.freeze({
++      top: 1701,
++      right: 567,
++      bottom: 567,
++      left: 567,
++    }),
++  }),
++});
++
++const getDirectChild = (parent, localName) => {
++  if (!parent) return null;
++
++  for (let child = parent.firstChild; child; child = child.nextSibling) {
++    if (
++      child.nodeType === 1 &&
++      child.namespaceURI === WORD_NS &&
++      child.localName === localName
++    ) {
++      return child;
++    }
++  }
++
++  return null;
++};
++
++const getWordAttribute = (node, localName) => {
++  if (!node) return null;
++  return (
++    node.getAttributeNS(WORD_NS, localName) ||
++    node.getAttribute(`w:${localName}`) ||
++    node.getAttribute(localName) ||
++    null
++  );
++};
++
++const readSectionGeometry = async (docxPath) => {
++  // Dependencies are loaded only for the real DOCX inspection. This keeps the
++  // pure comparison helper independently unit-testable.
++  const PizZip = require("pizzip");
++  const { DOMParser } = require("@xmldom/xmldom");
++  const zip = new PizZip(await fs.readFile(docxPath));
++  const documentXml = zip.file(WORD_DOCUMENT_PATH)?.asText();
++
++  if (!documentXml) {
++    throw new Error(
++      `validateActDocxGeometry: missing file ${WORD_DOCUMENT_PATH}`,
++    );
++  }
++
++  const document = new DOMParser().parseFromString(
++    documentXml,
++    "application/xml",
++  );
++  const sectionNodes = Array.from(
++    document.getElementsByTagNameNS(WORD_NS, "sectPr"),
++  );
++
++  return sectionNodes.map((section, index) => {
++    const pageSize = getDirectChild(section, "pgSz");
++    const margins = getDirectChild(section, "pgMar");
++
++    return {
++      index,
++      page: {
++        widthTwips: getWordAttribute(pageSize, "w"),
++        heightTwips: getWordAttribute(pageSize, "h"),
++        orientation: getWordAttribute(pageSize, "orient"),
++      },
++      margins: {
++        top: getWordAttribute(margins, "top"),
++        right: getWordAttribute(margins, "right"),
++        bottom: getWordAttribute(margins, "bottom"),
++        left: getWordAttribute(margins, "left"),
++      },
++    };
++  });
++};
++
++const mismatch = (actual, expected) => String(actual) !== String(expected);
++
++const compareSectionGeometry = (sections, layoutProfile) => {
++  const expected = ACT_DOCX_GEOMETRY[layoutProfile];
++
++  if (!expected) {
++    throw new Error(`Unknown act layoutProfile: ${layoutProfile}`);
++  }
++
++  if (!sections.length) {
++    return [
++      {
++        code: "ACT_DOCX_SECTION_MISSING",
++        message: "У DOCX Акта відсутні параметри секції",
++      },
++    ];
++  }
++
++  const violations = [];
++
++  for (const section of sections) {
++    for (const field of ["widthTwips", "heightTwips"]) {
++      if (mismatch(section.page?.[field], expected.page[field])) {
++        violations.push({
++          code: "ACT_DOCX_PAGE_SIZE_MISMATCH",
++          message: "Розмір сторінки DOCX Акта не відповідає шаблону",
++          sectionIndex: section.index,
++          field,
++          expected: expected.page[field],
++          actual: section.page?.[field] ?? null,
++        });
++      }
++    }
++
++    if (
++      mismatch(section.page?.orientation, expected.page.orientation)
++    ) {
++      violations.push({
++        code: "ACT_DOCX_ORIENTATION_MISMATCH",
++        message: "Орієнтація DOCX Акта не відповідає шаблону",
++        sectionIndex: section.index,
++        expected: expected.page.orientation,
++        actual: section.page?.orientation ?? null,
++      });
++    }
++
++    for (const side of ["top", "right", "bottom", "left"]) {
++      if (mismatch(section.margins?.[side], expected.margins[side])) {
++        violations.push({
++          code: "ACT_DOCX_MARGIN_MISMATCH",
++          message: `Поле ${side} у DOCX Акта не відповідає шаблону`,
++          sectionIndex: section.index,
++          side,
++          expectedTwips: expected.margins[side],
++          actualTwips: section.margins?.[side] ?? null,
++        });
++      }
++    }
++  }
++
++  return violations;
++};
++
++const validateActDocxGeometry = async (docxPath, layoutProfile) => {
++  const sections = await readSectionGeometry(docxPath);
++  const hardViolations = compareSectionGeometry(sections, layoutProfile);
++
++  return {
++    passed: hardViolations.length === 0,
++    layoutProfile,
++    expected: ACT_DOCX_GEOMETRY[layoutProfile],
++    sections,
++    hardViolations,
++  };
++};
++
++module.exports = validateActDocxGeometry;
++module.exports.ACT_DOCX_GEOMETRY = ACT_DOCX_GEOMETRY;
++module.exports.compareSectionGeometry = compareSectionGeometry;
+diff --git a/src/services/layout/validateActLayout.js b/src/services/layout/validateActLayout.js
+new file mode 100644
+index 0000000..3d27ed8
+--- /dev/null
++++ b/src/services/layout/validateActLayout.js
+@@ -0,0 +1,97 @@
++const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
++
++const {
++  buildPagesFromPdf,
++  validateBottomMargins,
++  validateEmptyLastPage,
++  detectSystemicBottomWhitespace,
++} = require("./validators/common");
++const validateActLayoutRules = require("./validators/act");
++
++const DEFAULTS = Object.freeze({
++  expectedBottomMarginCm: 1.0,
++  minAllowedBottomMarginCm: 0.9,
++  maxAllowedBottomMarginCm: 1.1,
++  systemicWhitespaceThresholdCm: 1.1,
++  systemicWhitespaceMinShare: 0.5,
++});
++
++const validateActLayout = async (pdfPath, context = {}) => {
++  const pdf = await pdfjs.getDocument(pdfPath).promise;
++  const pages = await buildPagesFromPdf(pdf);
++  const hardViolations = [];
++
++  validateEmptyLastPage(pages, hardViolations);
++  validateActLayoutRules(pages, context, hardViolations);
++
++  const expectedBottomMarginCm = Number(
++    context.expectedBottomMarginCm ?? DEFAULTS.expectedBottomMarginCm,
++  );
++  const minAllowedBottomMarginCm = Number(
++    context.minAllowedBottomMarginCm ?? DEFAULTS.minAllowedBottomMarginCm,
++  );
++  const maxAllowedBottomMarginCm = Number(
++    context.maxAllowedBottomMarginCm ?? DEFAULTS.maxAllowedBottomMarginCm,
++  );
++  const systemicWhitespaceThresholdCm = Number(
++    context.systemicWhitespaceThresholdCm ??
++      DEFAULTS.systemicWhitespaceThresholdCm,
++  );
++  const systemicWhitespaceMinShare = Number(
++    context.systemicWhitespaceMinShare ??
++      DEFAULTS.systemicWhitespaceMinShare,
++  );
++  const bottomMetric = "actualBottomTextGapCm";
++
++  const marginViolations = validateBottomMargins(pages, {
++    minAllowedBottomMarginCm,
++    maxAllowedBottomMarginCm,
++    metricField: bottomMetric,
++  });
++  const systemicWhitespace = detectSystemicBottomWhitespace(pages, {
++    expectedBottomMarginCm,
++    thresholdCm: systemicWhitespaceThresholdCm,
++    minShare: systemicWhitespaceMinShare,
++    metricField: bottomMetric,
++  });
++  const hasUnsafeBottomMargin = marginViolations.some(
++    (violation) => violation.status === "below_min",
++  );
++  const signatureViolationCodes = new Set([
++    "ACT_SIGNATURE_HEADING_MISSING",
++    "ACT_SIGNATURE_HEADING_HANGING",
++    "ACT_SIGNATURE_NOT_FOUND",
++    "ACT_SIGNATURE_BLOCK_SPLIT",
++    "ACT_SIGNATURE_FIELD_MISSING",
++    "ACT_SIGNATURE_WITHOUT_CONTEXT",
++  ]);
++  const totalsViolationCodes = new Set([
++    "ACT_SERVICE_TOTALS_MISSING",
++    "ACT_TOTALS_BLOCK_SPLIT",
++    "ACT_GRAND_TOTAL_MISSING",
++    "ACT_GRAND_TOTAL_SPLIT",
++  ]);
++
++  const layoutFlags = {
++    actBlocksOk: hardViolations.length === 0,
++    signatureOk: !hardViolations.some((item) =>
++      signatureViolationCodes.has(item.code),
++    ),
++    totalsOk: !hardViolations.some((item) =>
++      totalsViolationCodes.has(item.code),
++    ),
++  };
++
++  return {
++    pages,
++    hardViolations,
++    marginViolations,
++    systemicWhitespace,
++    layoutFlags,
++    bottomMetric,
++    hasUnsafeBottomMargin,
++    passed: hardViolations.length === 0 && marginViolations.length === 0,
++  };
++};
++
++module.exports = validateActLayout;
+diff --git a/src/services/layout/validators/act.js b/src/services/layout/validators/act.js
+new file mode 100644
+index 0000000..fa54118
+--- /dev/null
++++ b/src/services/layout/validators/act.js
+@@ -0,0 +1,519 @@
++const { normalizeText, pushViolation } = require("./common");
++
++const normalizeComparable = (value = "") =>
++  normalizeText(value).toLocaleLowerCase("uk-UA");
++
++const isPageNumberOnly = (value) =>
++  /^[-–—]?\s*\d+\s*[-–—]?$/.test(normalizeText(value));
++
++const lineIsMeaningful = (line) => {
++  const text = normalizeText(line?.text);
++  return Boolean(text) && !isPageNumberOnly(text);
++};
++
++const globalLineIndex = (hit) =>
++  (Number(hit?.pageNumber) || 0) * 10000 + (Number(hit?.lineIndex) || 0);
++
++const findOccurrences = (pages, marker) => {
++  const needle = normalizeComparable(marker);
++  if (!needle) return [];
++
++  const hits = [];
++  for (const page of pages) {
++    for (let lineIndex = 0; lineIndex < page.lines.length; lineIndex++) {
++      const text = normalizeComparable(page.lines[lineIndex].text);
++      if (text.includes(needle)) {
++        hits.push({
++          pageNumber: page.pageNumber,
++          lineIndex,
++          text,
++        });
++      }
++    }
++  }
++  return hits;
++};
++
++const firstOccurrence = (pages, marker) => findOccurrences(pages, marker)[0];
++
++const pageForHit = (pages, hit) =>
++  pages.find((page) => page.pageNumber === hit?.pageNumber);
++
++const countMeaningfulBefore = (page, lineIndex) =>
++  page.lines.slice(0, lineIndex).filter(lineIsMeaningful).length;
++
++const countMeaningfulAfter = (page, lineIndex) =>
++  page.lines.slice(lineIndex + 1).filter(lineIsMeaningful).length;
++
++const validateEmptyIntermediatePages = (pages, violations) => {
++  for (const page of pages) {
++    if (page.isLastPage) continue;
++    if (page.lines.some(lineIsMeaningful)) continue;
++    pushViolation(
++      violations,
++      "ACT_EMPTY_PAGE",
++      "У Єдиному акті виявлено порожню сторінку",
++      page.pageNumber,
++    );
++  }
++};
++
++const validateRequiredBlock = ({
++  pages,
++  marker,
++  missingCode,
++  hangingCode,
++  missingMessage,
++  hangingMessage,
++  violations,
++  minLinesAfter = 1,
++}) => {
++  const hits = findOccurrences(pages, marker);
++  if (!hits.length) {
++    pushViolation(violations, missingCode, missingMessage, null);
++    return null;
++  }
++
++  for (const hit of hits) {
++    const page = pageForHit(pages, hit);
++    if (!page) continue;
++    const linesAfter = countMeaningfulAfter(page, hit.lineIndex);
++    if (linesAfter < minLinesAfter) {
++      pushViolation(
++        violations,
++        hangingCode,
++        hangingMessage,
++        page.pageNumber,
++        { linesAfterCount: linesAfter },
++      );
++    }
++  }
++
++  return hits[0];
++};
++
++const buildPersonNameCandidates = (person = {}) => {
++  const firstName = normalizeText(person.firstName);
++  const lastName = normalizeText(person.lastName);
++  const fullName = normalizeText(person.fullName);
++
++  return [
++    fullName,
++    firstName && lastName ? `${firstName} ${lastName}` : "",
++    firstName && lastName ? `${lastName} ${firstName}` : "",
++  ].filter(Boolean);
++};
++
++const findSplitNameReference = (pages, person, afterGlobalIndex) => {
++  const firstName = normalizeText(person?.firstName);
++  const lastName = normalizeText(person?.lastName);
++  if (!firstName || !lastName) return null;
++
++  const firstHits = findOccurrences(pages, firstName);
++  const lastHits = findOccurrences(pages, lastName);
++  const pairs = [];
++
++  for (const firstHit of firstHits) {
++    for (const lastHit of lastHits) {
++      if (firstHit.pageNumber !== lastHit.pageNumber) continue;
++      if (Math.abs(firstHit.lineIndex - lastHit.lineIndex) > 2) continue;
++      const reference =
++        firstHit.lineIndex >= lastHit.lineIndex ? firstHit : lastHit;
++      if (globalLineIndex(reference) <= afterGlobalIndex) continue;
++      pairs.push(reference);
++    }
++  }
++
++  return pairs.sort((a, b) => globalLineIndex(a) - globalLineIndex(b))[0];
++};
++
++const findPersonReference = (pages, person, afterGlobalIndex) => {
++  const candidates = buildPersonNameCandidates(person);
++  const hits = candidates
++    .flatMap((candidate) => findOccurrences(pages, candidate))
++    .filter((hit) => globalLineIndex(hit) > afterGlobalIndex)
++    .sort((a, b) => globalLineIndex(a) - globalLineIndex(b));
++
++  return hits[0] || findSplitNameReference(pages, person, afterGlobalIndex);
++};
++
++const markerAppearsOnAdjacentPage = (pages, reference, marker) => {
++  const pageNumbers = new Set([
++    reference.pageNumber - 1,
++    reference.pageNumber + 1,
++  ]);
++  return pages
++    .filter((page) => pageNumbers.has(page.pageNumber))
++    .some((page) => findOccurrences([page], marker).length > 0);
++};
++
++const validatePersonBlock = ({
++  pages,
++  person,
++  afterGlobalIndex,
++  label,
++  violations,
++  requireContext = false,
++}) => {
++  const expectedName =
++    normalizeText(person?.fullName) ||
++    normalizeText(
++      [person?.firstName, person?.lastName].filter(Boolean).join(" "),
++    );
++  if (!expectedName) {
++    return { reference: null, nextGlobalIndex: afterGlobalIndex };
++  }
++
++  const reference = findPersonReference(pages, person, afterGlobalIndex);
++  if (!reference) {
++    pushViolation(
++      violations,
++      "ACT_SIGNATURE_NOT_FOUND",
++      `У PDF Акта не знайдено ПІБ у блоці підпису: ${label}`,
++      null,
++      { label, expectedName },
++    );
++    return { reference: null, nextGlobalIndex: afterGlobalIndex };
++  }
++
++  const page = pageForHit(pages, reference);
++  if (!page) {
++    return { reference, nextGlobalIndex: globalLineIndex(reference) };
++  }
++
++  const localStart = Math.max(0, reference.lineIndex - 8);
++  const localEnd = Math.min(page.lines.length - 1, reference.lineIndex + 3);
++  const fields = [
++    ["position", person.position],
++    ["rank", person.rank],
++  ].filter(([, value]) => normalizeText(value));
++
++  let blockStartIndex = reference.lineIndex;
++
++  for (const [field, value] of fields) {
++    const localHits = findOccurrences([page], value).filter(
++      (hit) => hit.lineIndex >= localStart && hit.lineIndex <= localEnd,
++    );
++
++    if (localHits.length) {
++      blockStartIndex = Math.min(
++        blockStartIndex,
++        ...localHits.map((hit) => hit.lineIndex),
++      );
++      continue;
++    }
++
++    const split = markerAppearsOnAdjacentPage(pages, reference, value);
++    pushViolation(
++      violations,
++      split ? "ACT_SIGNATURE_BLOCK_SPLIT" : "ACT_SIGNATURE_FIELD_MISSING",
++      split
++        ? `Блок підпису розірваний між сторінками: ${label}`
++        : `У блоці підпису не знайдено поле ${field}: ${label}`,
++      reference.pageNumber,
++      { label, field, expectedValue: normalizeText(value) },
++    );
++  }
++
++  if (requireContext) {
++    const linesBefore = countMeaningfulBefore(page, blockStartIndex);
++    if (linesBefore < 2) {
++      pushViolation(
++        violations,
++        "ACT_SIGNATURE_WITHOUT_CONTEXT",
++        `Перед блоком підпису немає мінімум 2 рядків тексту: ${label}`,
++        page.pageNumber,
++        { label, linesBeforeCount: linesBefore },
++      );
++    }
++  }
++
++  return {
++    reference,
++    nextGlobalIndex: globalLineIndex(reference),
++  };
++};
++
++const validatePeopleSection = ({
++  pages,
++  heading,
++  headingLabel,
++  people,
++  violations,
++  requireContextForFirst = false,
++}) => {
++  const headingHit = validateRequiredBlock({
++    pages,
++    marker: heading,
++    missingCode: "ACT_SIGNATURE_HEADING_MISSING",
++    hangingCode: "ACT_SIGNATURE_HEADING_HANGING",
++    missingMessage: `Не знайдено заголовок блоку підписів: ${headingLabel}`,
++    hangingMessage: `Заголовок блоку підписів залишився без підпису: ${headingLabel}`,
++    violations,
++  });
++
++  if (!headingHit) return;
++
++  if (requireContextForFirst) {
++    const page = pageForHit(pages, headingHit);
++    const linesBefore = page
++      ? countMeaningfulBefore(page, headingHit.lineIndex)
++      : 0;
++    if (linesBefore < 2) {
++      pushViolation(
++        violations,
++        "ACT_SIGNATURE_WITHOUT_CONTEXT",
++        `Блок підписів перенесений без мінімум 2 рядків тексту: ${headingLabel}`,
++        headingHit.pageNumber,
++        { headingLabel, linesBeforeCount: linesBefore },
++      );
++    }
++  }
++
++  let cursor = globalLineIndex(headingHit);
++  for (let index = 0; index < people.length; index++) {
++    const result = validatePersonBlock({
++      pages,
++      person: people[index],
++      afterGlobalIndex: cursor,
++      label: `${headingLabel} №${index + 1}`,
++      violations,
++    });
++    cursor = Math.max(cursor, result.nextGlobalIndex);
++  }
++};
++
++const validateTotals = (pages, markers, violations) => {
++  const subtotalHits = findOccurrences(pages, "Разом за номенклатурою");
++  const expectedSubtotalCount = Math.max(
++    0,
++    Number(markers.expectedServiceSubtotalCount) || 0,
++  );
++
++  if (subtotalHits.length < expectedSubtotalCount) {
++    pushViolation(
++      violations,
++      "ACT_SERVICE_TOTALS_MISSING",
++      "У таблиці Акта відсутні підсумки за однією або кількома номенклатурами",
++      null,
++      { expectedSubtotalCount, actualSubtotalCount: subtotalHits.length },
++    );
++  }
++
++  for (const hit of subtotalHits) {
++    const page = pageForHit(pages, hit);
++    if (!page) continue;
++    if (countMeaningfulAfter(page, hit.lineIndex) < 1) {
++      pushViolation(
++        violations,
++        "ACT_TOTALS_BLOCK_SPLIT",
++        "Рядок 'Разом за номенклатурою' відірваний від наступного підсумку",
++        page.pageNumber,
++      );
++    }
++  }
++
++  const grandTotalHits = findOccurrences(pages, "Усього:");
++  if (!grandTotalHits.length) {
++    pushViolation(
++      violations,
++      "ACT_GRAND_TOTAL_MISSING",
++      "У таблиці Акта не знайдено рядок 'Усього:'",
++      null,
++    );
++    return;
++  }
++
++  for (const hit of grandTotalHits) {
++    const page = pageForHit(pages, hit);
++    if (!page) continue;
++
++    if (countMeaningfulBefore(page, hit.lineIndex) < 1) {
++      pushViolation(
++        violations,
++        "ACT_TOTALS_BLOCK_SPLIT",
++        "Рядок 'Усього:' перенесений без попереднього підсумкового рядка",
++        page.pageNumber,
++      );
++    }
++
++    const nearbyText = page.lines
++      .slice(Math.max(0, hit.lineIndex - 1), hit.lineIndex + 2)
++      .map((line) => normalizeComparable(line.text))
++      .join(" ");
++    if (!nearbyText.includes(normalizeComparable("Разом"))) {
++      pushViolation(
++        violations,
++        "ACT_GRAND_TOTAL_SPLIT",
++        "Комірка 'Разом' відірвана від рядка 'Усього:'",
++        page.pageNumber,
++      );
++    }
++  }
++};
++
++const validateCopiesBlock = (pages, markers, violations) => {
++  validateRequiredBlock({
++    pages,
++    marker: "Акт складено у",
++    missingCode: "ACT_COPIES_HEADING_MISSING",
++    hangingCode: "ACT_COPIES_BLOCK_HANGING",
++    missingMessage: "Не знайдено блок про примірники Акта",
++    hangingMessage: "Заголовок блоку примірників залишився без переліку",
++    violations,
++  });
++
++  const expectedCopiesCount = Math.max(
++    0,
++    Number(markers.expectedCopiesCount) || 0,
++  );
++  if (!expectedCopiesCount) return;
++
++  const copyLines = findOccurrences(pages, "примірник №");
++  if (copyLines.length < expectedCopiesCount) {
++    pushViolation(
++      violations,
++      "ACT_COPIES_MISSING",
++      "Кількість надрукованих рядків примірників менша за очікувану",
++      null,
++      { expectedCopiesCount, actualCopiesCount: copyLines.length },
++    );
++  }
++};
++
++const validateCommanderSection = (pages, markers, violations) => {
++  const heading = "ІІІ. Висновок командира військової частини:";
++  const hits = findOccurrences(pages, heading);
++
++  if (!markers.showCommanderConclusion) {
++    if (hits.length) {
++      pushViolation(
++        violations,
++        "ACT_COMMANDER_SECTION_UNEXPECTED",
++        "Розділ III надруковано, хоча умовний блок мав бути прихований",
++        hits[0].pageNumber,
++      );
++    }
++    return;
++  }
++
++  const headingHit = validateRequiredBlock({
++    pages,
++    marker: heading,
++    missingCode: "ACT_COMMANDER_SECTION_MISSING",
++    hangingCode: "ACT_COMMANDER_HEADING_HANGING",
++    missingMessage: "Не знайдено розділ III — висновок командира",
++    hangingMessage: "Заголовок розділу III залишився без тексту висновку",
++    violations,
++  });
++
++  if (!headingHit) return;
++
++  validatePersonBlock({
++    pages,
++    person: markers.commander || {},
++    afterGlobalIndex: globalLineIndex(headingHit),
++    label: "командир військової частини",
++    violations,
++    requireContext: true,
++  });
++};
++
++const validateSectionOrder = (pages, markers, violations) => {
++  const orderedMarkers = [
++    "І. Опис події:",
++    "ІІ. Висновок комісії:",
++    "Голова комісії:",
++    "Члени комісії:",
++    "Учасники (свідки) події:",
++    "Начальники служб забезпечення:",
++    "Акт складено у",
++    ...(markers.showCommanderConclusion
++      ? ["ІІІ. Висновок командира військової частини:"]
++      : []),
++  ];
++
++  const hits = orderedMarkers
++    .map((marker) => ({ marker, hit: firstOccurrence(pages, marker) }))
++    .filter((entry) => entry.hit);
++
++  for (let index = 1; index < hits.length; index++) {
++    if (globalLineIndex(hits[index].hit) > globalLineIndex(hits[index - 1].hit)) {
++      continue;
++    }
++    pushViolation(
++      violations,
++      "ACT_SECTION_ORDER_INVALID",
++      "Порушено порядок розділів або підписних блоків Акта",
++      hits[index].hit.pageNumber,
++      { previousMarker: hits[index - 1].marker, marker: hits[index].marker },
++    );
++  }
++};
++
++const validateActLayoutRules = (pages, context = {}, violations) => {
++  const markers = context.markers || {};
++
++  validateEmptyIntermediatePages(pages, violations);
++
++  validateRequiredBlock({
++    pages,
++    marker: "І. Опис події:",
++    missingCode: "ACT_EVENT_SECTION_MISSING",
++    hangingCode: "ACT_EVENT_HEADING_HANGING",
++    missingMessage: "Не знайдено розділ I — опис події",
++    hangingMessage: "Заголовок 'І. Опис події:' залишився без тексту",
++    violations,
++  });
++
++  validateRequiredBlock({
++    pages,
++    marker: "ІІ. Висновок комісії:",
++    missingCode: "ACT_COMMISSION_SECTION_MISSING",
++    hangingCode: "ACT_COMMISSION_HEADING_HANGING",
++    missingMessage: "Не знайдено розділ II — висновок комісії",
++    hangingMessage: "Заголовок 'ІІ. Висновок комісії:' залишився без тексту",
++    violations,
++  });
++
++  validateTotals(pages, markers, violations);
++
++  validatePeopleSection({
++    pages,
++    heading: "Голова комісії:",
++    headingLabel: "голова комісії",
++    people: markers.chairman ? [markers.chairman] : [],
++    violations,
++    requireContextForFirst: true,
++  });
++
++  validatePeopleSection({
++    pages,
++    heading: "Члени комісії:",
++    headingLabel: "член комісії",
++    people: markers.commissionMembers || [],
++    violations,
++  });
++
++  validatePeopleSection({
++    pages,
++    heading: "Учасники (свідки) події:",
++    headingLabel: "учасник (свідок) події",
++    people: markers.eventWitnesses || [],
++    violations,
++  });
++
++  validatePeopleSection({
++    pages,
++    heading: "Начальники служб забезпечення:",
++    headingLabel: "начальник служби забезпечення",
++    people: markers.supplyServiceChiefs || [],
++    violations,
++  });
++
++  validateCopiesBlock(pages, markers, violations);
++  validateCommanderSection(pages, markers, violations);
++  validateSectionOrder(pages, markers, violations);
++};
++
++module.exports = validateActLayoutRules;
+diff --git a/tests/act.layout.logic.test.js b/tests/act.layout.logic.test.js
+new file mode 100644
+index 0000000..c9fe5c9
+--- /dev/null
++++ b/tests/act.layout.logic.test.js
+@@ -0,0 +1,265 @@
++const test = require("node:test");
++const assert = require("node:assert/strict");
++
++const validateActLayoutRules = require("../src/services/layout/validators/act");
++const {
++  validateBottomMargins,
++} = require("../src/services/layout/validators/common");
++const {
++  ACT_DOCX_GEOMETRY,
++  compareSectionGeometry,
++} = require("../src/services/layout/validateActDocxGeometry");
++
++const page = (pageNumber, lines, isLastPage = false) => ({
++  pageNumber,
++  isLastPage,
++  lines: lines.map((text, index) => ({
++    index,
++    text,
++    y: 800 - index * 14,
++    bottomY: 798 - index * 14,
++  })),
++});
++
++const person = (firstName, lastName, position, rank) => ({
++  firstName,
++  lastName,
++  fullName: `${firstName} ${lastName}`,
++  position,
++  rank,
++});
++
++const baseMarkers = () => ({
++  expectedServiceSubtotalCount: 1,
++  expectedCopiesCount: 1,
++  showCommanderConclusion: true,
++  chairman: person("Іван", "ПЕТРЕНКО", "Голова комісії — начальник служби", "майор"),
++  commissionMembers: [
++    person("Петро", "ІВАНЕНКО", "Член комісії — офіцер", "капітан"),
++  ],
++  eventWitnesses: [
++    person("Олег", "СИДОРЕНКО", "Свідок події", "сержант"),
++  ],
++  supplyServiceChiefs: [
++    person("Анна", "КОВАЛЬ", "Начальник служби забезпечення", "лейтенант"),
++  ],
++  commander: person(
++    "Микола",
++    "ШЕВЧЕНКО",
++    "Командир військової частини",
++    "полковник",
++  ),
++});
++
++const validLines = () => [
++  "Майно за номенклатурою служби",
++  "1 Майно 123 шт 1 100,00 80,00 80,00",
++  "Разом за номенклатурою служби 80,00",
++  "Усього: 1 найменування Разом 80,00",
++  "І. Опис події:",
++  "Опис події займає щонайменше один рядок",
++  "Подію підтверджено матеріалами справи",
++  "ІІ. Висновок комісії:",
++  "Комісія дійшла висновку про списання майна",
++  "Додатковий рядок висновку комісії",
++  "Голова комісії:",
++  "Голова комісії — начальник служби",
++  "майор Іван ПЕТРЕНКО",
++  "(посада, військове звання, підпис, Власне ім’я, ПРІЗВИЩЕ)",
++  "Члени комісії:",
++  "Член комісії — офіцер",
++  "капітан Петро ІВАНЕНКО",
++  "(посада, військове звання, підпис, Власне ім’я, ПРІЗВИЩЕ)",
++  "Учасники (свідки) події:",
++  "Свідок події",
++  "сержант Олег СИДОРЕНКО",
++  "(посада, військове звання, підпис, Власне ім’я, ПРІЗВИЩЕ)",
++  "Начальники служб забезпечення:",
++  "Начальник служби забезпечення",
++  "лейтенант Анна КОВАЛЬ",
++  "(посада, військове звання, підпис, Власне ім’я, ПРІЗВИЩЕ)",
++  "Акт складено у 2 примірниках:",
++  "примірник №1 — військова частина",
++  "ІІІ. Висновок командира військової частини:",
++  "Вважаю списання майна обґрунтованим",
++  "Командир військової частини",
++  "полковник Микола ШЕВЧЕНКО",
++  "(посада, військове звання, підпис, Власне ім’я, ПРІЗВИЩЕ)",
++  "М. П.",
++];
++
++const validate = (pages, markers = baseMarkers()) => {
++  const violations = [];
++  validateActLayoutRules(pages, { markers }, violations);
++  return violations;
++};
++
++test("fully valid Act passes every hard layout rule", () => {
++  const violations = validate([page(1, validLines(), true)]);
++  assert.deepEqual(violations, []);
++});
++
++test("event heading cannot remain at the bottom without event text", () => {
++  const first = validLines().slice(0, 4).concat("І. Опис події:");
++  const second = validLines().slice(5);
++  const violations = validate([page(1, first), page(2, second, true)]);
++
++  assert.ok(
++    violations.some((item) => item.code === "ACT_EVENT_HEADING_HANGING"),
++  );
++});
++
++test("subtotal and grand total cannot be split across pages", () => {
++  const first = [
++    "Майно за номенклатурою служби",
++    "1 Майно 123 шт 1 100,00 80,00 80,00",
++    "Разом за номенклатурою служби 80,00",
++  ];
++  const second = validLines().slice(3);
++  const violations = validate([page(1, first), page(2, second, true)]);
++
++  assert.ok(
++    violations.some((item) => item.code === "ACT_TOTALS_BLOCK_SPLIT"),
++  );
++});
++
++test("chairman signature section requires two context lines on its page", () => {
++  const lines = validLines();
++  const chairmanIndex = lines.indexOf("Голова комісії:");
++  const first = lines.slice(0, chairmanIndex);
++  const second = lines.slice(chairmanIndex);
++  const violations = validate([page(1, first), page(2, second, true)]);
++
++  assert.ok(
++    violations.some(
++      (item) => item.code === "ACT_SIGNATURE_WITHOUT_CONTEXT",
++    ),
++  );
++});
++
++test("position on one page and signer name on the next is a split block", () => {
++  const lines = validLines();
++  const chairmanPositionIndex = lines.indexOf(
++    "Голова комісії — начальник служби",
++  );
++  const first = lines.slice(0, chairmanPositionIndex + 1);
++  const second = lines.slice(chairmanPositionIndex + 1);
++  const violations = validate([page(1, first), page(2, second, true)]);
++
++  assert.ok(
++    violations.some((item) => item.code === "ACT_SIGNATURE_BLOCK_SPLIT"),
++  );
++});
++
++test("commander section is forbidden when the conditional block is off", () => {
++  const markers = baseMarkers();
++  markers.showCommanderConclusion = false;
++  markers.commander = {};
++  const violations = validate([page(1, validLines(), true)], markers);
++
++  assert.ok(
++    violations.some(
++      (item) => item.code === "ACT_COMMANDER_SECTION_UNEXPECTED",
++    ),
++  );
++});
++
++test("Act bottom validation accepts 0.9–1.1 cm and allows a larger last page", () => {
++  const pages = [
++    { pageNumber: 1, isLastPage: false, actualBottomTextGapCm: 0.9 },
++    { pageNumber: 2, isLastPage: false, actualBottomTextGapCm: 1.1 },
++    { pageNumber: 3, isLastPage: true, actualBottomTextGapCm: 12.0 },
++  ];
++
++  const violations = validateBottomMargins(pages, {
++    minAllowedBottomMarginCm: 0.9,
++    maxAllowedBottomMarginCm: 1.1,
++    metricField: "actualBottomTextGapCm",
++  });
++
++  assert.deepEqual(violations, []);
++});
++
++test("Act bottom validation rejects both unsafe and underfilled full pages", () => {
++  const pages = [
++    { pageNumber: 1, isLastPage: false, actualBottomTextGapCm: 0.89 },
++    { pageNumber: 2, isLastPage: false, actualBottomTextGapCm: 1.11 },
++    { pageNumber: 3, isLastPage: true, actualBottomTextGapCm: 4.0 },
++  ];
++
++  const violations = validateBottomMargins(pages, {
++    minAllowedBottomMarginCm: 0.9,
++    maxAllowedBottomMarginCm: 1.1,
++    metricField: "actualBottomTextGapCm",
++  });
++
++  assert.deepEqual(
++    violations.map((item) => item.status),
++    ["below_min", "above_max"],
++  );
++});
++
++test("V1 and V2 DOCX geometry contracts match the reference templates", () => {
++  for (const layoutProfile of [
++    "ACT_LANDSCAPE_V1",
++    "ACT_LANDSCAPE_V2",
++  ]) {
++    const expected = ACT_DOCX_GEOMETRY[layoutProfile];
++    const section = {
++      index: 0,
++      page: {
++        widthTwips: String(expected.page.widthTwips),
++        heightTwips: String(expected.page.heightTwips),
++        orientation: expected.page.orientation,
++      },
++      margins: Object.fromEntries(
++        Object.entries(expected.margins).map(([side, value]) => [
++          side,
++          String(value),
++        ]),
++      ),
++    };
++
++    assert.deepEqual(compareSectionGeometry([section], layoutProfile), []);
++  }
++});
++
++test("DOCX geometry mismatch is a hard Act violation", () => {
++  const violations = compareSectionGeometry(
++    [
++      {
++        index: 0,
++        page: {
++          widthTwips: "16838",
++          heightTwips: "11906",
++          orientation: "portrait",
++        },
++        margins: {
++          top: "1701",
++          right: "567",
++          bottom: "567",
++          left: "567",
++        },
++      },
++    ],
++    "ACT_LANDSCAPE_V1",
++  );
++
++  assert.ok(
++    violations.some(
++      (item) => item.code === "ACT_DOCX_ORIENTATION_MISMATCH",
++    ),
++  );
++  assert.ok(
++    violations.some(
++      (item) =>
++        item.code === "ACT_DOCX_MARGIN_MISMATCH" && item.side === "top",
++    ),
++  );
++  assert.ok(
++    violations.some(
++      (item) =>
++        item.code === "ACT_DOCX_MARGIN_MISMATCH" && item.side === "left",
++    ),
++  );
++});
+diff --git a/tests/act.pipeline.static.test.js b/tests/act.pipeline.static.test.js
+new file mode 100644
+index 0000000..44e020d
+--- /dev/null
++++ b/tests/act.pipeline.static.test.js
+@@ -0,0 +1,85 @@
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const fs = require("node:fs");
++const path = require("node:path");
++
++const root = path.resolve(__dirname, "..");
++const read = (relativePath) =>
++  fs.readFileSync(path.join(root, relativePath), "utf8");
++
++test("Act generation uses the isolated Act validator", () => {
++  const source = read("src/services/layout/runActGeneration.js");
++
++  assert.match(source, /require\("\.\/validateActDocxGeometry"\)/);
++  assert.match(source, /require\("\.\/validateActLayout"\)/);
++  assert.match(source, /layout\.passed\s*=/);
++  assert.match(source, /candidate\.marginViolations\.length === 0/);
++  assert.match(source, /selected first fully valid profile/);
++  assert.doesNotMatch(source, /best_effort/);
++  assert.doesNotMatch(source, /require\("\.\/validateLayout"\)/);
++});
++
++test("validated DOCX and PDF are promoted without reconversion", () => {
++  const source = read("src/services/layout/runActGeneration.js");
++
++  assert.match(source, /fs\.rename\(candidate\.docxPath, finalDocxPath\)/);
++  assert.match(source, /fs\.rename\(candidate\.pdfPath, finalPdfPath\)/);
++  assert.doesNotMatch(source, /copyFile/);
++  assert.doesNotMatch(source, /finalizeResult/);
++});
++
++test("Act search cannot be silently narrowed by a stale environment value", () => {
++  const source = read("src/services/layout/runActGeneration.js");
++
++  assert.match(source, /const maxCheckedProfiles = profiles\.length/);
++  assert.doesNotMatch(source, /ACT_MAX_CHECKED_PROFILES/);
++});
++
++test("Act validator enforces the visible-text bottom range 0.9–1.1 cm", () => {
++  const source = read("src/services/layout/validateActLayout.js");
++  const geometrySource = read(
++    "src/services/layout/validateActDocxGeometry.js",
++  );
++
++  assert.match(source, /minAllowedBottomMarginCm:\s*0\.9/);
++  assert.match(source, /maxAllowedBottomMarginCm:\s*1\.1/);
++  assert.match(source, /actualBottomTextGapCm/);
++  assert.match(geometrySource, /ACT_LANDSCAPE_V1/);
++  assert.match(geometrySource, /top:\s*567/);
++  assert.match(geometrySource, /left:\s*1417/);
++  assert.match(geometrySource, /ACT_LANDSCAPE_V2/);
++  assert.match(geometrySource, /top:\s*1701/);
++});
++
++test("Act item rows receive their total residual value", () => {
++  const buildPropertyGroups = require(
++    "../src/services/documents/act/buildPropertyGroups",
++  );
++  const groups = buildPropertyGroups([
++    {
++      service: "Речова служба",
++      totalResidualCostUah: "80,00",
++      listOfProperty: [
++        {
++          itemName: "Майно",
++          cost: {
++            residualUnitCostUah: "80,00",
++            grandTotalResidualCostUah: "160,00",
++          },
++        },
++      ],
++    },
++  ]);
++
++  assert.equal(groups[0].items[0].totalResidualCostUah, "160,00");
++});
++
++test("report and order dispatch remain separate from Act", () => {
++  const source = read("src/services/generation/runGenerationJob.js");
++
++  assert.match(source, /report\.documentType === "order"/);
++  assert.match(source, /report\.documentType === "act"/);
++  assert.match(source, /runOrderGeneration\(report, job\)/);
++  assert.match(source, /runActGeneration\(report, job\)/);
++  assert.match(source, /runProfiles\(report, job\)/);
++});
