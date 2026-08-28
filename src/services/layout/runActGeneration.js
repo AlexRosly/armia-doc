@@ -109,11 +109,6 @@ const buildActValidationContext = (payload) => {
 
   return {
     documentType: "act",
-    expectedBottomMarginCm: 1.0,
-    minAllowedBottomMarginCm: 0.9,
-    maxAllowedBottomMarginCm: 1.1,
-    systemicWhitespaceThresholdCm: 1.1,
-    systemicWhitespaceMinShare: 0.5,
     markers: {
       expectedServiceSubtotalCount: Array.isArray(data.lostProperty)
         ? data.lostProperty.length
@@ -163,9 +158,7 @@ const evaluateCandidate = async ({
       ...layout.hardViolations,
     ];
     layout.layoutFlags.actBlocksOk = layout.hardViolations.length === 0;
-    layout.passed =
-      layout.hardViolations.length === 0 &&
-      layout.marginViolations.length === 0;
+    layout.passed = layout.hardViolations.length === 0;
 
     if (DEBUG_ACT_LAYOUT) {
       console.log(

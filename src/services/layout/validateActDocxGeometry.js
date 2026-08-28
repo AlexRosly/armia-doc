@@ -14,8 +14,8 @@ const ACT_DOCX_GEOMETRY = Object.freeze({
     margins: Object.freeze({
       top: 567,
       right: 567,
-      bottom: 567,
       left: 1417,
+      bottom: Object.freeze({ expected: 567, min: 510, max: 624 }),
     }),
   }),
   ACT_LANDSCAPE_V2: Object.freeze({
@@ -27,8 +27,8 @@ const ACT_DOCX_GEOMETRY = Object.freeze({
     margins: Object.freeze({
       top: 1701,
       right: 567,
-      bottom: 567,
       left: 567,
+      bottom: Object.freeze({ expected: 567, min: 510, max: 624 }),
     }),
   }),
 });
@@ -104,6 +104,15 @@ const readSectionGeometry = async (docxPath) => {
 
 const mismatch = (actual, expected) => String(actual) !== String(expected);
 
+const isBottomMarginOutOfRange = (actual, expected) => {
+  const value = Number(actual);
+  return (
+    !Number.isFinite(value) ||
+    value < expected.min ||
+    value > expected.max
+  );
+};
+
 const compareSectionGeometry = (sections, layoutProfile) => {
   const expected = ACT_DOCX_GEOMETRY[layoutProfile];
 
@@ -148,7 +157,7 @@ const compareSectionGeometry = (sections, layoutProfile) => {
       });
     }
 
-    for (const side of ["top", "right", "bottom", "left"]) {
+    for (const side of ["top", "right", "left"]) {
       if (mismatch(section.margins?.[side], expected.margins[side])) {
         violations.push({
           code: "ACT_DOCX_MARGIN_MISMATCH",
@@ -159,6 +168,23 @@ const compareSectionGeometry = (sections, layoutProfile) => {
           actualTwips: section.margins?.[side] ?? null,
         });
       }
+    }
+
+    if (
+      isBottomMarginOutOfRange(
+        section.margins?.bottom,
+        expected.margins.bottom,
+      )
+    ) {
+      violations.push({
+        code: "ACT_DOCX_BOTTOM_MARGIN_OUT_OF_RANGE",
+        message: "Нижнє поле DOCX Акта має бути в межах 0,9–1,1 см",
+        sectionIndex: section.index,
+        expectedTwips: expected.margins.bottom.expected,
+        minAllowedTwips: expected.margins.bottom.min,
+        maxAllowedTwips: expected.margins.bottom.max,
+        actualTwips: section.margins?.bottom ?? null,
+      });
     }
   }
 

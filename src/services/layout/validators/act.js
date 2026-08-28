@@ -1,7 +1,20 @@
 const { normalizeText, pushViolation } = require("./common");
 
 const normalizeComparable = (value = "") =>
-  normalizeText(value).toLocaleLowerCase("uk-UA");
+  normalizeText(value)
+    .normalize("NFC")
+    .toLocaleLowerCase("uk-UA")
+    // PDF.js may return a punctuation glyph as a separate text item. Joining
+    // such items inserts a technical space before the punctuation.
+    .replace(/\s+([:;,.])/g, "$1")
+    .replace(/([([{«])\s+/g, "$1")
+    .replace(/\s+([)\]}»])/g, "$1")
+    // Some PDF fonts expose the Ukrainian section numeral "ІІ" as Latin
+    // "II". Normalize only numeral-like tokens immediately before a dot.
+    .replace(/(^|\s)[iі]{1,3}(?=\s*\.)/g, (match, prefix) => {
+      const numeralLength = match.trim().length;
+      return `${prefix}${"і".repeat(numeralLength)}`;
+    });
 
 const isPageNumberOnly = (value) =>
   /^[-–—]?\s*\d+\s*[-–—]?$/.test(normalizeText(value));

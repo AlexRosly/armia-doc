@@ -35,20 +35,24 @@ test("Act search cannot be silently narrowed by a stale environment value", () =
   assert.doesNotMatch(source, /ACT_MAX_CHECKED_PROFILES/);
 });
 
-test("Act validator enforces the visible-text bottom range 0.9–1.1 cm", () => {
+test("Act validator checks the DOCX section bottom instead of text glyphs", () => {
   const source = read("src/services/layout/validateActLayout.js");
   const geometrySource = read(
     "src/services/layout/validateActDocxGeometry.js",
   );
 
-  assert.match(source, /minAllowedBottomMarginCm:\s*0\.9/);
-  assert.match(source, /maxAllowedBottomMarginCm:\s*1\.1/);
-  assert.match(source, /actualBottomTextGapCm/);
+  assert.match(source, /docxSectionBottomMarginCm/);
+  assert.doesNotMatch(source, /actualBottomTextGapCm/);
+  assert.doesNotMatch(source, /validateBottomMargins/);
   assert.match(geometrySource, /ACT_LANDSCAPE_V1/);
   assert.match(geometrySource, /top:\s*567/);
   assert.match(geometrySource, /left:\s*1417/);
   assert.match(geometrySource, /ACT_LANDSCAPE_V2/);
   assert.match(geometrySource, /top:\s*1701/);
+  assert.match(
+    geometrySource,
+    /bottom:\s*Object\.freeze\(\{ expected: 567, min: 510, max: 624 \}\)/,
+  );
 });
 
 test("Act item rows receive their total residual value", () => {

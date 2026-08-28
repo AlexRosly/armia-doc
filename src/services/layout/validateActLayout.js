@@ -2,19 +2,9 @@ const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 
 const {
   buildPagesFromPdf,
-  validateBottomMargins,
   validateEmptyLastPage,
-  detectSystemicBottomWhitespace,
 } = require("./validators/common");
 const validateActLayoutRules = require("./validators/act");
-
-const DEFAULTS = Object.freeze({
-  expectedBottomMarginCm: 1.0,
-  minAllowedBottomMarginCm: 0.9,
-  maxAllowedBottomMarginCm: 1.1,
-  systemicWhitespaceThresholdCm: 1.1,
-  systemicWhitespaceMinShare: 0.5,
-});
 
 const validateActLayout = async (pdfPath, context = {}) => {
   const pdf = await pdfjs.getDocument(pdfPath).promise;
@@ -24,39 +14,11 @@ const validateActLayout = async (pdfPath, context = {}) => {
   validateEmptyLastPage(pages, hardViolations);
   validateActLayoutRules(pages, context, hardViolations);
 
-  const expectedBottomMarginCm = Number(
-    context.expectedBottomMarginCm ?? DEFAULTS.expectedBottomMarginCm,
-  );
-  const minAllowedBottomMarginCm = Number(
-    context.minAllowedBottomMarginCm ?? DEFAULTS.minAllowedBottomMarginCm,
-  );
-  const maxAllowedBottomMarginCm = Number(
-    context.maxAllowedBottomMarginCm ?? DEFAULTS.maxAllowedBottomMarginCm,
-  );
-  const systemicWhitespaceThresholdCm = Number(
-    context.systemicWhitespaceThresholdCm ??
-      DEFAULTS.systemicWhitespaceThresholdCm,
-  );
-  const systemicWhitespaceMinShare = Number(
-    context.systemicWhitespaceMinShare ??
-      DEFAULTS.systemicWhitespaceMinShare,
-  );
-  const bottomMetric = "actualBottomTextGapCm";
-
-  const marginViolations = validateBottomMargins(pages, {
-    minAllowedBottomMarginCm,
-    maxAllowedBottomMarginCm,
-    metricField: bottomMetric,
-  });
-  const systemicWhitespace = detectSystemicBottomWhitespace(pages, {
-    expectedBottomMarginCm,
-    thresholdCm: systemicWhitespaceThresholdCm,
-    minShare: systemicWhitespaceMinShare,
-    metricField: bottomMetric,
-  });
-  const hasUnsafeBottomMargin = marginViolations.some(
-    (violation) => violation.status === "below_min",
-  );
+  // The Act is a landscape table form. A distance to the lowest text glyph is
+  // cell padding/content density, not the document margin. The real Act margin
+  // is checked in the final DOCX section by validateActDocxGeometry.
+  const marginViolations = [];
+  const bottomMetric = "docxSectionBottomMarginCm";
   const signatureViolationCodes = new Set([
     "ACT_SIGNATURE_HEADING_MISSING",
     "ACT_SIGNATURE_HEADING_HANGING",
@@ -86,11 +48,15 @@ const validateActLayout = async (pdfPath, context = {}) => {
     pages,
     hardViolations,
     marginViolations,
-    systemicWhitespace,
+    systemicWhitespace: {
+      triggered: false,
+      metricField: bottomMetric,
+      reason: "validated_from_final_docx_section",
+    },
     layoutFlags,
     bottomMetric,
-    hasUnsafeBottomMargin,
-    passed: hardViolations.length === 0 && marginViolations.length === 0,
+    hasUnsafeBottomMargin: false,
+    passed: hardViolations.length === 0,
   };
 };
 

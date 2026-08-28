@@ -3,9 +3,6 @@ const assert = require("node:assert/strict");
 
 const validateActLayoutRules = require("../src/services/layout/validators/act");
 const {
-  validateBottomMargins,
-} = require("../src/services/layout/validators/common");
-const {
   ACT_DOCX_GEOMETRY,
   compareSectionGeometry,
 } = require("../src/services/layout/validateActDocxGeometry");
@@ -164,38 +161,68 @@ test("commander section is forbidden when the conditional block is off", () => {
   );
 });
 
-test("Act bottom validation accepts 0.9–1.1 cm and allows a larger last page", () => {
-  const pages = [
-    { pageNumber: 1, isLastPage: false, actualBottomTextGapCm: 0.9 },
-    { pageNumber: 2, isLastPage: false, actualBottomTextGapCm: 1.1 },
-    { pageNumber: 3, isLastPage: true, actualBottomTextGapCm: 12.0 },
-  ];
-
-  const violations = validateBottomMargins(pages, {
-    minAllowedBottomMarginCm: 0.9,
-    maxAllowedBottomMarginCm: 1.1,
-    metricField: "actualBottomTextGapCm",
+test("Act heading matching tolerates PDF punctuation spaces and Latin II", () => {
+  const lines = validLines().map((line) => {
+    if (line === "ІІ. Висновок комісії:") {
+      return "II. Висновок комісії :";
+    }
+    if (line === "Голова комісії:") return "Голова комісії :";
+    return line;
   });
 
+  const violations = validate([page(1, lines, true)]);
   assert.deepEqual(violations, []);
 });
 
-test("Act bottom validation rejects both unsafe and underfilled full pages", () => {
-  const pages = [
-    { pageNumber: 1, isLastPage: false, actualBottomTextGapCm: 0.89 },
-    { pageNumber: 2, isLastPage: false, actualBottomTextGapCm: 1.11 },
-    { pageNumber: 3, isLastPage: true, actualBottomTextGapCm: 4.0 },
-  ];
-
-  const violations = validateBottomMargins(pages, {
-    minAllowedBottomMarginCm: 0.9,
-    maxAllowedBottomMarginCm: 1.1,
-    metricField: "actualBottomTextGapCm",
-  });
+test("Act DOCX bottom validation accepts section margins 0.9–1.1 cm", () => {
+  const expected = ACT_DOCX_GEOMETRY.ACT_LANDSCAPE_V1;
+  const sections = [510, 567, 624].map((bottom, index) => ({
+    index,
+    page: {
+      widthTwips: String(expected.page.widthTwips),
+      heightTwips: String(expected.page.heightTwips),
+      orientation: expected.page.orientation,
+    },
+    margins: {
+      top: String(expected.margins.top),
+      right: String(expected.margins.right),
+      bottom: String(bottom),
+      left: String(expected.margins.left),
+    },
+  }));
 
   assert.deepEqual(
-    violations.map((item) => item.status),
-    ["below_min", "above_max"],
+    compareSectionGeometry(sections, "ACT_LANDSCAPE_V1"),
+    [],
+  );
+});
+
+test("Act DOCX bottom validation rejects section margins outside 0.9–1.1 cm", () => {
+  const expected = ACT_DOCX_GEOMETRY.ACT_LANDSCAPE_V1;
+  const sections = [509, 625].map((bottom, index) => ({
+    index,
+    page: {
+      widthTwips: String(expected.page.widthTwips),
+      heightTwips: String(expected.page.heightTwips),
+      orientation: expected.page.orientation,
+    },
+    margins: {
+      top: String(expected.margins.top),
+      right: String(expected.margins.right),
+      bottom: String(bottom),
+      left: String(expected.margins.left),
+    },
+  }));
+  const violations = compareSectionGeometry(
+    sections,
+    "ACT_LANDSCAPE_V1",
+  );
+
+  assert.equal(violations.length, 2);
+  assert.ok(
+    violations.every(
+      (item) => item.code === "ACT_DOCX_BOTTOM_MARGIN_OUT_OF_RANGE",
+    ),
   );
 });
 
@@ -212,12 +239,12 @@ test("V1 and V2 DOCX geometry contracts match the reference templates", () => {
         heightTwips: String(expected.page.heightTwips),
         orientation: expected.page.orientation,
       },
-      margins: Object.fromEntries(
-        Object.entries(expected.margins).map(([side, value]) => [
-          side,
-          String(value),
-        ]),
-      ),
+      margins: {
+        top: String(expected.margins.top),
+        right: String(expected.margins.right),
+        bottom: String(expected.margins.bottom.expected),
+        left: String(expected.margins.left),
+      },
     };
 
     assert.deepEqual(compareSectionGeometry([section], layoutProfile), []);
