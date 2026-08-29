@@ -162,12 +162,12 @@ test("commander section is forbidden when the conditional block is off", () => {
 });
 
 test("Act heading matching tolerates PDF punctuation spaces and Latin II", () => {
-  const lines = validLines().map((line) => {
+  const lines = validLines().flatMap((line) => {
     if (line === "ІІ. Висновок комісії:") {
-      return "II. Висновок комісії :";
+      return ["II. Висновок", "комісії :"];
     }
-    if (line === "Голова комісії:") return "Голова комісії :";
-    return line;
+    if (line === "Голова комісії:") return ["Голова", "комісії :"];
+    return [line];
   });
 
   const violations = validate([page(1, lines, true)]);

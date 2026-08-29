@@ -16,6 +16,9 @@ const normalizeComparable = (value = "") =>
       return `${prefix}${"і".repeat(numeralLength)}`;
     });
 
+const compactComparable = (value = "") =>
+  normalizeComparable(value).replace(/[\s:;,.()[\]{}«»'"`\-–—]/g, "");
+
 const isPageNumberOnly = (value) =>
   /^[-–—]?\s*\d+\s*[-–—]?$/.test(normalizeText(value));
 
@@ -44,6 +47,53 @@ const findOccurrences = (pages, marker) => {
       }
     }
   }
+
+  if (hits.length) return hits;
+
+  // A single Word paragraph can be exposed by PDF.js as two or more visual
+  // lines. Fall back to a bounded adjacent-line window only when the normal
+  // single-line lookup found nothing. This preserves exact matches for totals
+  // and repeated blocks while recovering split headings/positions.
+  const compactNeedle = compactComparable(marker);
+  if (compactNeedle.length < 2) return [];
+
+  const markerWordCount = needle.split(/\s+/).filter(Boolean).length;
+  const maxWindowLines = Math.min(6, Math.max(2, markerWordCount + 1));
+
+  for (const page of pages) {
+    for (let start = 0; start < page.lines.length; start++) {
+      let matchedEnd = null;
+
+      for (
+        let end = start + 1;
+        end < page.lines.length && end < start + maxWindowLines;
+        end++
+      ) {
+        const text = normalizeComparable(
+          page.lines
+            .slice(start, end + 1)
+            .map((line) => line.text)
+            .join(" "),
+        );
+        if (
+          text.includes(needle) ||
+          compactComparable(text).includes(compactNeedle)
+        ) {
+          hits.push({
+            pageNumber: page.pageNumber,
+            lineIndex: start,
+            lineEndIndex: end,
+            text,
+          });
+          matchedEnd = end;
+          break;
+        }
+      }
+
+      if (matchedEnd != null) start = matchedEnd;
+    }
+  }
+
   return hits;
 };
 
@@ -90,7 +140,10 @@ const validateRequiredBlock = ({
   for (const hit of hits) {
     const page = pageForHit(pages, hit);
     if (!page) continue;
-    const linesAfter = countMeaningfulAfter(page, hit.lineIndex);
+    const linesAfter = countMeaningfulAfter(
+      page,
+      hit.lineEndIndex ?? hit.lineIndex,
+    );
     if (linesAfter < minLinesAfter) {
       pushViolation(
         violations,
@@ -316,7 +369,9 @@ const validateTotals = (pages, markers, violations) => {
   for (const hit of subtotalHits) {
     const page = pageForHit(pages, hit);
     if (!page) continue;
-    if (countMeaningfulAfter(page, hit.lineIndex) < 1) {
+    if (
+      countMeaningfulAfter(page, hit.lineEndIndex ?? hit.lineIndex) < 1
+    ) {
       pushViolation(
         violations,
         "ACT_TOTALS_BLOCK_SPLIT",

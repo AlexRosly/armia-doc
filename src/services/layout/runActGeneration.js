@@ -12,6 +12,19 @@ const {
 const actProfiles = require("../documents/act/profiles");
 
 const DEBUG_ACT_LAYOUT = process.env.ACT_LAYOUT_DEBUG === "1";
+const PROFILE_INVARIANT_REPEAT_LIMIT = 8;
+const lastSuccessfulProfileByLayout = new Map();
+
+const PROFILE_INVARIANT_CODES = new Set([
+  "ACT_EVENT_SECTION_MISSING",
+  "ACT_COMMISSION_SECTION_MISSING",
+  "ACT_SERVICE_TOTALS_MISSING",
+  "ACT_GRAND_TOTAL_MISSING",
+  "ACT_SIGNATURE_HEADING_MISSING",
+  "ACT_COPIES_HEADING_MISSING",
+  "ACT_COPIES_MISSING",
+  "ACT_COMMANDER_SECTION_MISSING",
+]);
 
 const buildPayload = (report) => ({
   ...report.toObject(),
@@ -37,6 +50,34 @@ const buildCandidateDocxPath = (job, index) =>
 
 const buildPdfPath = (docxPath, pdfDir) =>
   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
+
+const buildActSearchProfiles = (profiles, layoutProfile) => {
+  const ordered = [];
+  const seen = new Set();
+  const add = (profile) => {
+    if (!profile || seen.has(profile.name)) return;
+    seen.add(profile.name);
+    ordered.push(profile);
+  };
+
+  const lastSuccessfulName = lastSuccessfulProfileByLayout.get(layoutProfile);
+  if (lastSuccessfulName) {
+    add(profiles.find((profile) => profile.name === lastSuccessfulName));
+  }
+
+  add(profiles[0]);
+
+  // Probe the whole typography/spacing space before the exhaustive pass.
+  // For 729 profiles this checks about 28 representatives first.
+  const stride = Math.max(2, Math.floor(Math.sqrt(profiles.length)));
+  for (let index = stride; index < profiles.length; index += stride) {
+    add(profiles[index]);
+  }
+  add(profiles[profiles.length - 1]);
+
+  profiles.forEach(add);
+  return ordered;
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -211,6 +252,41 @@ const isSafeCandidate = (candidate) =>
   candidate.hardViolations.length === 0 &&
   candidate.marginViolations.length === 0;
 
+const profileInvariantFailureKey = (candidate) => {
+  if (!candidate.ok) return "";
+  return [
+    ...new Set(
+      candidate.hardViolations
+        .map((item) => item.code)
+        .filter((code) => PROFILE_INVARIANT_CODES.has(code)),
+    ),
+  ]
+    .sort()
+    .join(",");
+};
+
+const recordRejection = (summary, candidate) => {
+  if (!candidate.ok) {
+    summary.technicalErrors += 1;
+    return;
+  }
+
+  for (const item of candidate.hardViolations) {
+    summary.hardViolations[item.code] =
+      (summary.hardViolations[item.code] || 0) + 1;
+  }
+  for (const item of candidate.marginViolations) {
+    summary.marginViolations[item.status] =
+      (summary.marginViolations[item.status] || 0) + 1;
+  }
+};
+
+const logRejectionSummary = (summary, checkedCount) => {
+  console.warn(
+    `[runActGeneration] rejection summary checked=${checkedCount} ${JSON.stringify(summary)}`,
+  );
+};
+
 const promoteCandidate = async ({
   candidate,
   finalDocxPath,
@@ -260,7 +336,15 @@ const runActGeneration = async (report, job) => {
   const finalDocxPath = buildFinalDocxPath(job);
   const finalPdfPath = buildFinalPdfPath(job);
   const validationContext = buildActValidationContext(payload);
+  const searchProfiles = buildActSearchProfiles(profiles || [], layoutProfile);
   const artifacts = [];
+  const rejectionSummary = {
+    hardViolations: {},
+    marginViolations: {},
+    technicalErrors: 0,
+  };
+  let repeatedInvariantKey = "";
+  let repeatedInvariantCount = 0;
 
   if (!profiles || profiles.length === 0) {
     throw new Error(`Unknown act layoutProfile: ${layoutProfile}`);
@@ -270,7 +354,7 @@ const runActGeneration = async (report, job) => {
 
   try {
     for (let index = 0; index < maxCheckedProfiles; index++) {
-      const profile = profiles[index];
+      const profile = searchProfiles[index];
       const checkedCount = index + 1;
 
       if (checkedCount % 25 === 0) {
@@ -291,6 +375,23 @@ const runActGeneration = async (report, job) => {
       artifacts.push(...result.artifacts);
 
       if (!isSafeCandidate(result)) {
+        recordRejection(rejectionSummary, result);
+
+        const invariantKey = profileInvariantFailureKey(result);
+        if (invariantKey && invariantKey === repeatedInvariantKey) {
+          repeatedInvariantCount += 1;
+        } else {
+          repeatedInvariantKey = invariantKey;
+          repeatedInvariantCount = invariantKey ? 1 : 0;
+        }
+
+        if (repeatedInvariantCount >= PROFILE_INVARIANT_REPEAT_LIMIT) {
+          logRejectionSummary(rejectionSummary, checkedCount);
+          throw new Error(
+            `Act profile-invariant validation failed after ${checkedCount} profiles: ${invariantKey}`,
+          );
+        }
+
         await cleanupArtifacts(result.artifacts);
         continue;
       }
@@ -303,9 +404,11 @@ const runActGeneration = async (report, job) => {
       console.log(
         `[runActGeneration] selected first fully valid profile=${profile.name} checked=${checkedCount}`,
       );
+      lastSuccessfulProfileByLayout.set(layoutProfile, profile.name);
       return buildResult(promoted, "passed");
     }
 
+    logRejectionSummary(rejectionSummary, maxCheckedProfiles);
     throw new Error(
       `No fully valid act profile found after checking ${maxCheckedProfiles} profiles`,
     );

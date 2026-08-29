@@ -32,6 +32,10 @@ test("Act search cannot be silently narrowed by a stale environment value", () =
   const source = read("src/services/layout/runActGeneration.js");
 
   assert.match(source, /const maxCheckedProfiles = profiles\.length/);
+  assert.match(source, /Math\.floor\(Math\.sqrt\(profiles\.length\)\)/);
+  assert.match(source, /lastSuccessfulProfileByLayout/);
+  assert.match(source, /PROFILE_INVARIANT_REPEAT_LIMIT = 8/);
+  assert.match(source, /rejection summary checked=/);
   assert.doesNotMatch(source, /ACT_MAX_CHECKED_PROFILES/);
 });
 
