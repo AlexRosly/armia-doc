@@ -108,6 +108,126 @@ const countMeaningfulBefore = (page, lineIndex) =>
 const countMeaningfulAfter = (page, lineIndex) =>
   page.lines.slice(lineIndex + 1).filter(lineIsMeaningful).length;
 
+const lineGlobalIndex = (page, line) =>
+  (Number(page?.pageNumber) || 0) * 10000 +
+  (Number(line?.index) || 0);
+
+const validateApprovalSealSpacing = (pages, violations) => {
+  const firstPage = pages[0];
+  const sealLine = firstPage?.lines.find(
+    (line) => compactComparable(line.text) === "мп",
+  );
+
+  if (!sealLine) {
+    pushViolation(
+      violations,
+      "ACT_APPROVAL_SEAL_MISSING",
+      "У блоці затвердження не знайдено позначку 'М. П.'",
+      firstPage?.pageNumber || null,
+    );
+    return;
+  }
+
+  const items = Array.isArray(sealLine.items) ? sealLine.items : [];
+  if (
+    items.some((item) =>
+      /м\.\s+п\./iu.test(String(item.text || "")),
+    )
+  ) {
+    return;
+  }
+
+  const pIndex = items.findIndex((item) =>
+    /^п\./iu.test(normalizeComparable(item.text)),
+  );
+  const previousItem = pIndex > 0 ? items[pIndex - 1] : null;
+  const pItem = pIndex >= 0 ? items[pIndex] : null;
+  const visibleGapPt =
+    previousItem && pItem
+      ? Number(pItem.x) -
+        (Number(previousItem.x) + Number(previousItem.width))
+      : 0;
+
+  if (Number.isFinite(visibleGapPt) && visibleGapPt >= 1) return;
+
+  pushViolation(
+    violations,
+    "ACT_APPROVAL_SEAL_SPACE_MISSING",
+    "У верхньому блоці Акта між 'М.' та 'П.' немає видимого пробілу",
+    firstPage.pageNumber,
+    { visibleGapPt: Number(visibleGapPt.toFixed(2)) },
+  );
+};
+
+const maxInterItemGap = (line) => {
+  const items = Array.isArray(line?.items) ? line.items : [];
+  let maxGapPt = 0;
+  let referenceHeightPt = 0;
+
+  for (let index = 1; index < items.length; index++) {
+    const previous = items[index - 1];
+    const current = items[index];
+    const gapPt =
+      Number(current.x) -
+      (Number(previous.x) + Number(previous.width));
+    if (Number.isFinite(gapPt)) maxGapPt = Math.max(maxGapPt, gapPt);
+    referenceHeightPt = Math.max(
+      referenceHeightPt,
+      Number(previous.height) || 0,
+      Number(current.height) || 0,
+    );
+  }
+
+  return { maxGapPt, referenceHeightPt };
+};
+
+const validateNarrativeSpacing = (pages, violations) => {
+  const ranges = [
+    ["І. Опис події:", "ІІ. Висновок комісії:"],
+    ["ІІ. Висновок комісії:", "Голова комісії:"],
+  ]
+    .map(([startMarker, endMarker]) => ({
+      startMarker,
+      endMarker,
+      start: firstOccurrence(pages, startMarker),
+      end: firstOccurrence(pages, endMarker),
+    }))
+    .filter(({ start, end }) => start && end)
+    .map((range) => ({
+      ...range,
+      startIndex: globalLineIndex(range.start),
+      endIndex: globalLineIndex(range.end),
+    }));
+
+  for (const range of ranges) {
+    for (const page of pages) {
+      for (const line of page.lines) {
+        const index = lineGlobalIndex(page, line);
+        if (index <= range.startIndex || index >= range.endIndex) continue;
+        if (!Array.isArray(line.items) || line.items.length < 3) continue;
+
+        const { maxGapPt, referenceHeightPt } = maxInterItemGap(line);
+        const ratio = maxGapPt / Math.max(1, referenceHeightPt);
+        if (!(maxGapPt > 12 && ratio > 2)) continue;
+
+        pushViolation(
+          violations,
+          "ACT_NARRATIVE_SPACING_DISTORTED",
+          "У тексті Акта виявлено неприродно розтягнуті пробіли",
+          page.pageNumber,
+          {
+            section: range.startMarker,
+            maxGapPt: Number(maxGapPt.toFixed(2)),
+            gapToFontHeightRatio: Number(ratio.toFixed(2)),
+            text: normalizeText(line.text),
+          },
+        );
+        break;
+      }
+    }
+  }
+};
+
 const validateEmptyIntermediatePages = (pages, violations) => {
   for (const page of pages) {
     if (page.isLastPage) continue;
@@ -523,6 +643,8 @@ const validateActLayoutRules = (pages, context = {}, violations) => {
   const markers = context.markers || {};
 
   validateEmptyIntermediatePages(pages, violations);
+  validateApprovalSealSpacing(pages, violations);
+  validateNarrativeSpacing(pages, violations);
 
   validateRequiredBlock({
     pages,

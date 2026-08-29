@@ -2,6 +2,7 @@ const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 
 const {
   buildPagesFromPdf,
+  validateBottomMargins,
   validateEmptyLastPage,
 } = require("./validators/common");
 const validateActLayoutRules = require("./validators/act");
@@ -14,11 +15,15 @@ const validateActLayout = async (pdfPath, context = {}) => {
   validateEmptyLastPage(pages, hardViolations);
   validateActLayoutRules(pages, context, hardViolations);
 
-  // The Act is a landscape table form. A distance to the lowest text glyph is
-  // cell padding/content density, not the document margin. The real Act margin
-  // is checked in the final DOCX section by validateActDocxGeometry.
-  const marginViolations = [];
-  const bottomMetric = "docxSectionBottomMarginCm";
+  // The section setting and the actual filled page are separate contracts.
+  // validateActDocxGeometry checks the 1 cm section margin; this check rejects
+  // underfilled/overflowing non-final pages by their visible lower text edge.
+  const bottomMetric = "actualBottomTextGapCm";
+  const marginViolations = validateBottomMargins(pages, {
+    minAllowedBottomMarginCm: 0.9,
+    maxAllowedBottomMarginCm: 1.1,
+    metricField: bottomMetric,
+  });
   const signatureViolationCodes = new Set([
     "ACT_SIGNATURE_HEADING_MISSING",
     "ACT_SIGNATURE_HEADING_HANGING",
@@ -49,14 +54,19 @@ const validateActLayout = async (pdfPath, context = {}) => {
     hardViolations,
     marginViolations,
     systemicWhitespace: {
-      triggered: false,
+      triggered: marginViolations.some(
+        (item) => item.status === "above_max",
+      ),
       metricField: bottomMetric,
-      reason: "validated_from_final_docx_section",
+      reason: "validated_from_visible_pdf_text_bottom",
     },
     layoutFlags,
     bottomMetric,
-    hasUnsafeBottomMargin: false,
-    passed: hardViolations.length === 0,
+    hasUnsafeBottomMargin: marginViolations.some(
+      (item) => item.status === "below_min",
+    ),
+    passed:
+      hardViolations.length === 0 && marginViolations.length === 0,
   };
 };
 

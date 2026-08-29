@@ -39,15 +39,16 @@ test("Act search cannot be silently narrowed by a stale environment value", () =
   assert.doesNotMatch(source, /ACT_MAX_CHECKED_PROFILES/);
 });
 
-test("Act validator checks the DOCX section bottom instead of text glyphs", () => {
+test("Act validator checks both section geometry and actual PDF bottom", () => {
   const source = read("src/services/layout/validateActLayout.js");
   const geometrySource = read(
     "src/services/layout/validateActDocxGeometry.js",
   );
 
-  assert.match(source, /docxSectionBottomMarginCm/);
-  assert.doesNotMatch(source, /actualBottomTextGapCm/);
-  assert.doesNotMatch(source, /validateBottomMargins/);
+  assert.match(source, /actualBottomTextGapCm/);
+  assert.match(source, /validateBottomMargins/);
+  assert.match(source, /minAllowedBottomMarginCm:\s*0\.9/);
+  assert.match(source, /maxAllowedBottomMarginCm:\s*1\.1/);
   assert.match(geometrySource, /ACT_LANDSCAPE_V1/);
   assert.match(geometrySource, /top:\s*567/);
   assert.match(geometrySource, /left:\s*1417/);
@@ -57,6 +58,41 @@ test("Act validator checks the DOCX section bottom instead of text glyphs", () =
     geometrySource,
     /bottom:\s*Object\.freeze\(\{ expected: 567, min: 510, max: 624 \}\)/,
   );
+});
+
+test("Act narrative text cannot create justified manual-break gaps", () => {
+  const buildTemplateDataAct = require(
+    "../src/services/documents/act/buildTemplateDataAct",
+  );
+  const data = buildTemplateDataAct({
+    data: {
+      eventDescription: {
+        text: "Перший рядок:\n         Другий рядок:Третій",
+      },
+      eventConfirmation: { text: "  Підтвердження  " },
+      commissionConclusion: "Висновок:\r\n  продовження",
+      commanderConclusion: {
+        text: "Рішення:\n     погоджено",
+      },
+    },
+  });
+
+  assert.equal(
+    data.eventDescription,
+    "Перший рядок: Другий рядок: Третій",
+  );
+  assert.equal(data.eventConfirmation, "Підтвердження");
+  assert.equal(data.commissionConclusion, "Висновок: продовження");
+  assert.equal(data.commanderText, "Рішення: погоджено");
+});
+
+test("Act generation preserves literal blank runs such as М. П.", () => {
+  const source = read("src/services/documents/act/generate.js");
+
+  assert.match(source, /require\("pizzip"\)/);
+  assert.match(source, /xml:space="preserve"/);
+  assert.match(source, /outputPath:\s*null/);
+  assert.match(source, /fs\.writeFile\(outputPath, finalBuffer\)/);
 });
 
 test("Act item rows receive their total residual value", () => {

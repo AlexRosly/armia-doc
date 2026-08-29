@@ -10,12 +10,23 @@ const {
 const page = (pageNumber, lines, isLastPage = false) => ({
   pageNumber,
   isLastPage,
-  lines: lines.map((text, index) => ({
-    index,
-    text,
-    y: 800 - index * 14,
-    bottomY: 798 - index * 14,
-  })),
+  lines: lines.map((value, index) => {
+    const line = typeof value === "string" ? { text: value } : value;
+    return {
+      index,
+      y: 800 - index * 14,
+      bottomY: 798 - index * 14,
+      ...line,
+      items: line.items || [
+        {
+          text: line.text,
+          x: 0,
+          width: String(line.text || "").length * 6,
+          height: 12,
+        },
+      ],
+    };
+  }),
 });
 
 const person = (firstName, lastName, position, rank) => ({
@@ -49,6 +60,7 @@ const baseMarkers = () => ({
 });
 
 const validLines = () => [
+  "М. П.",
   "Майно за номенклатурою служби",
   "1 Майно 123 шт 1 100,00 80,00 80,00",
   "Разом за номенклатурою служби 80,00",
@@ -172,6 +184,48 @@ test("Act heading matching tolerates PDF punctuation spaces and Latin II", () =>
 
   const violations = validate([page(1, lines, true)]);
   assert.deepEqual(violations, []);
+});
+
+test("approval seal requires a visible space between М. and П.", () => {
+  const lines = validLines();
+  lines[0] = {
+    text: "М . П.",
+    items: [
+      { text: "М", x: 100, width: 10, height: 12 },
+      { text: ".", x: 110, width: 3, height: 12 },
+      { text: "П.", x: 113, width: 12, height: 12 },
+    ],
+  };
+
+  const violations = validate([page(1, lines, true)]);
+  assert.ok(
+    violations.some(
+      (item) => item.code === "ACT_APPROVAL_SEAL_SPACE_MISSING",
+    ),
+  );
+});
+
+test("narrative lines with extreme expanded spaces are rejected", () => {
+  const lines = validLines();
+  const targetIndex = lines.indexOf(
+    "Опис події займає щонайменше один рядок",
+  );
+  lines[targetIndex] = {
+    text: "військове майно, а саме:",
+    items: [
+      { text: "військове", x: 100, width: 55, height: 12 },
+      { text: "майно,", x: 160, width: 35, height: 12 },
+      { text: "а", x: 260, width: 6, height: 12 },
+      { text: "саме:", x: 380, width: 28, height: 12 },
+    ],
+  };
+
+  const violations = validate([page(1, lines, true)]);
+  assert.ok(
+    violations.some(
+      (item) => item.code === "ACT_NARRATIVE_SPACING_DISTORTED",
+    ),
+  );
 });
 
 test("Act DOCX bottom validation accepts section margins 0.9–1.1 cm", () => {

@@ -25,6 +25,18 @@ const toNumber = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+const normalizeActNarrativeText = (value) =>
+  String(value ?? "")
+    .normalize("NFC")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/[\u00a0\t ]+/g, " ")
+    .replace(/([:;,.!?])(?=[\p{L}\p{N}])/gu, "$1 ")
+    .trim();
+
 const normalizeCommanderDate = (params = {}) => {
   const dayRaw = String(params.day ?? "").trim();
   const monthRaw = String(params.month ?? "").trim();
@@ -90,9 +102,15 @@ const buildTemplateDataAct = (payload) => {
     grandTotalResidualCostUah:
       data.writeOffValue?.grandTotalResidualCostUah || "",
 
-    eventDescription: data.eventDescription?.text || "",
-    eventConfirmation: data.eventConfirmation?.text || "",
-    commissionConclusion: data.commissionConclusion || "",
+    eventDescription: normalizeActNarrativeText(
+      data.eventDescription?.text,
+    ),
+    eventConfirmation: normalizeActNarrativeText(
+      data.eventConfirmation?.text,
+    ),
+    commissionConclusion: normalizeActNarrativeText(
+      data.commissionConclusion,
+    ),
 
     chairmanPosition: data.commission?.chairman?.position || "",
     chairmanRank: data.commission?.chairman?.rank || "",
@@ -108,7 +126,7 @@ const buildTemplateDataAct = (payload) => {
 
     showCommanderConclusion,
 
-    commanderText: commanderConclusion.text || "",
+    commanderText: normalizeActNarrativeText(commanderConclusion.text),
     commanderPosition: commanderConclusion.position || "",
     commanderRank: commanderConclusion.rank || "",
     commanderFirstName: commanderConclusion.firstName || "",
