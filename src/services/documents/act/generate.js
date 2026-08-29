@@ -4,15 +4,63 @@ const PizZip = require("pizzip");
 const buildTemplateData = require("./buildTemplateDataAct");
 const { generateSingleTemplate } = require("../shared");
 
+const paragraphText = (paragraphXml) =>
+  [...paragraphXml.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)]
+    .map((match) => match[1])
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isRemovableEmptyParagraph = (paragraphXml) =>
+  !paragraphText(paragraphXml) &&
+  !/<w:(?:br|sectPr|drawing|object)\b/.test(paragraphXml);
+
+const relaxEventHeadingPagination = (documentXml) => {
+  const paragraphs = [
+    ...documentXml.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g),
+  ];
+  const headingIndex = paragraphs.findIndex(
+    (match) => paragraphText(match[0]) === "І. Опис події:",
+  );
+
+  if (headingIndex < 0) return documentXml;
+
+  const heading = paragraphs[headingIndex];
+  const relaxedHeading = heading[0].replace(
+    /<w:(?:keepNext|keepLines)\b[^>]*\/>/g,
+    "",
+  );
+  const previous = paragraphs[headingIndex - 1];
+  const gapBeforeHeading = previous
+    ? documentXml.slice(previous.index + previous[0].length, heading.index)
+    : "";
+  const removePrevious =
+    previous &&
+    isRemovableEmptyParagraph(previous[0]) &&
+    !gapBeforeHeading.trim();
+  const replacementStart = removePrevious ? previous.index : heading.index;
+  const prefix = removePrevious
+    ? `${documentXml.slice(0, replacementStart)}${gapBeforeHeading}`
+    : documentXml.slice(0, replacementStart);
+
+  return `${prefix}${relaxedHeading}${documentXml.slice(
+    heading.index + heading[0].length,
+  )}`;
+};
+
 const preserveActLiteralSpaceRuns = (buffer) => {
   const zip = new PizZip(buffer);
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) return buffer;
 
   const documentXml = documentFile.asText();
-  const normalizedXml = documentXml.replace(
-    /<w:t(?![^>]*\bxml:space=)([^>]*)> <\/w:t>/g,
-    '<w:t$1 xml:space="preserve"> </w:t>',
+  const normalizedXml = relaxEventHeadingPagination(
+    documentXml
+      .replace(
+        /<w:t(?![^>]*\bxml:space=)([^>]*)> <\/w:t>/g,
+        '<w:t$1 xml:space="preserve"> </w:t>',
+      )
+      .replace(/<w:lastRenderedPageBreak\b[^>]*\/>/g, ""),
   );
 
   if (normalizedXml === documentXml) return buffer;

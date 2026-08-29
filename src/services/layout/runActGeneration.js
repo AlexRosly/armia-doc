@@ -1,7 +1,7 @@
 const fs = require("fs/promises");
 const path = require("path");
 
-const convertToPdf = require("../pdf/convertToPdf");
+const { convertManyToPdf } = require("../pdf/convertToPdf");
 const validateActDocxGeometry = require("./validateActDocxGeometry");
 const validateActLayout = require("./validateActLayout");
 
@@ -13,6 +13,7 @@ const actProfiles = require("../documents/act/profiles");
 
 const DEBUG_ACT_LAYOUT = process.env.ACT_LAYOUT_DEBUG === "1";
 const PROFILE_INVARIANT_REPEAT_LIMIT = 8;
+const ACT_CANDIDATE_BATCH_SIZE = 24;
 const lastSuccessfulProfileByLayout = new Map();
 
 const PROFILE_INVARIANT_CODES = new Set([
@@ -170,90 +171,185 @@ const buildActValidationContext = (payload) => {
   };
 };
 
-const evaluateCandidate = async ({
+const evaluateCandidateBatch = async ({
   payload,
-  docxPath,
+  candidates,
   pdfDir,
-  profile,
-  profileName,
   layoutProfile,
   validationContext,
 }) => {
-  const pdfPath = buildPdfPath(docxPath, pdfDir);
+  const results = new Array(candidates.length);
+  const prepared = [];
 
-  try {
-    await ensureParentDir(docxPath);
-    await fs.mkdir(pdfDir, { recursive: true });
+  await fs.mkdir(pdfDir, { recursive: true });
 
-    await cleanupFileIfExists(docxPath);
-    await cleanupFileIfExists(pdfPath);
+  for (let index = 0; index < candidates.length; index++) {
+    const candidate = candidates[index];
+    const pdfPath = buildPdfPath(candidate.docxPath, pdfDir);
+    const baseResult = {
+      profileName: candidate.profile.name,
+      profile: candidate.profile,
+      docxPath: candidate.docxPath,
+      pdfPath,
+      artifacts: [candidate.docxPath, pdfPath],
+    };
 
-    await generateActDocument(payload, docxPath, profile);
-    const docxGeometry = await validateActDocxGeometry(
-      docxPath,
-      layoutProfile,
-    );
-    await convertToPdf(docxPath, pdfDir);
-
-    const layout = await validateActLayout(pdfPath, validationContext);
-    layout.docxGeometry = docxGeometry;
-    layout.hardViolations = [
-      ...docxGeometry.hardViolations,
-      ...layout.hardViolations,
-    ];
-    layout.layoutFlags.actBlocksOk = layout.hardViolations.length === 0;
-    layout.passed = layout.hardViolations.length === 0;
-
-    if (DEBUG_ACT_LAYOUT) {
-      console.log(
-        `[runActGeneration] layout result: ${profileName} => ${JSON.stringify({
-          passed: layout.passed,
-          bottomMetric: layout.bottomMetric,
-          hardViolations: layout.hardViolations.map((item) => item.code),
-          marginViolations: layout.marginViolations,
-        })}`,
+    try {
+      await ensureParentDir(candidate.docxPath);
+      await cleanupFileIfExists(candidate.docxPath);
+      await cleanupFileIfExists(pdfPath);
+      await generateActDocument(
+        payload,
+        candidate.docxPath,
+        candidate.profile,
       );
+      const docxGeometry = await validateActDocxGeometry(
+        candidate.docxPath,
+        layoutProfile,
+      );
+      prepared.push({ index, baseResult, docxGeometry });
+    } catch (error) {
+      if (isFatalGenerationError(error)) throw error;
+      results[index] = {
+        ...baseResult,
+        ok: false,
+        pages: [],
+        hardViolations: [],
+        marginViolations: [],
+        error: error.message,
+      };
     }
-
-    return {
-      ok: true,
-      profileName,
-      profile,
-      pages: layout.pages,
-      hardViolations: layout.hardViolations,
-      marginViolations: layout.marginViolations,
-      layout,
-      docxPath,
-      pdfPath,
-      artifacts: [docxPath, pdfPath],
-    };
-  } catch (error) {
-    if (DEBUG_ACT_LAYOUT) {
-      console.warn(`[runActGeneration] candidate failed: ${profileName}`);
-      console.warn(error.message);
-    }
-
-    if (isFatalGenerationError(error)) throw error;
-
-    return {
-      ok: false,
-      profileName,
-      profile,
-      pages: [],
-      hardViolations: [],
-      marginViolations: [],
-      error: error.message,
-      docxPath,
-      pdfPath,
-      artifacts: [docxPath, pdfPath],
-    };
   }
+
+  if (prepared.length) {
+    try {
+      await convertManyToPdf(
+        prepared.map((item) => item.baseResult.docxPath),
+        pdfDir,
+      );
+    } catch (error) {
+      if (isFatalGenerationError(error)) throw error;
+      for (const item of prepared) {
+        results[item.index] = {
+          ...item.baseResult,
+          ok: false,
+          pages: [],
+          hardViolations: [],
+          marginViolations: [],
+          error: error.message,
+        };
+      }
+    }
+  }
+
+  await Promise.all(
+    prepared.map(async (item) => {
+      if (results[item.index]) return;
+      const { baseResult, docxGeometry } = item;
+
+      try {
+        const layout = await validateActLayout(
+          baseResult.pdfPath,
+          validationContext,
+        );
+        layout.docxGeometry = docxGeometry;
+        layout.hardViolations = [
+          ...docxGeometry.hardViolations,
+          ...layout.hardViolations,
+        ];
+        layout.layoutFlags.actBlocksOk =
+          layout.hardViolations.length === 0;
+        layout.passed =
+          layout.hardViolations.length === 0 &&
+          layout.marginViolations.length === 0;
+
+        if (DEBUG_ACT_LAYOUT) {
+          console.log(
+            `[runActGeneration] layout result: ${baseResult.profileName} => ${JSON.stringify({
+              passed: layout.passed,
+              bottomMetric: layout.bottomMetric,
+              hardViolations: layout.hardViolations.map(
+                (violation) => violation.code,
+              ),
+              marginViolations: layout.marginViolations,
+            })}`,
+          );
+        }
+
+        results[item.index] = {
+          ...baseResult,
+          ok: true,
+          pages: layout.pages,
+          hardViolations: layout.hardViolations,
+          marginViolations: layout.marginViolations,
+          layout,
+        };
+      } catch (error) {
+        if (isFatalGenerationError(error)) throw error;
+        results[item.index] = {
+          ...baseResult,
+          ok: false,
+          pages: [],
+          hardViolations: [],
+          marginViolations: [],
+          error: error.message,
+        };
+      }
+    }),
+  );
+
+  if (DEBUG_ACT_LAYOUT) {
+    for (const result of results.filter((item) => !item?.ok)) {
+      console.warn(
+        `[runActGeneration] candidate failed: ${result.profileName}`,
+      );
+      console.warn(result.error);
+    }
+  }
+
+  return results;
 };
 
 const isSafeCandidate = (candidate) =>
   candidate.ok &&
   candidate.hardViolations.length === 0 &&
   candidate.marginViolations.length === 0;
+
+const isSafeBestEffortCandidate = (candidate) =>
+  candidate.ok &&
+  candidate.hardViolations.length === 0 &&
+  candidate.marginViolations.length > 0 &&
+  !candidate.marginViolations.some(
+    (item) => item.status === "below_min",
+  );
+
+const buildBestEffortScore = (candidate) => ({
+  violationCount: candidate.marginViolations.length,
+  totalDeviation: candidate.marginViolations.reduce(
+    (sum, item) => sum + (Number(item.deviationCm) || 0),
+    0,
+  ),
+  maxDeviation: Math.max(
+    ...candidate.marginViolations.map(
+      (item) => Number(item.deviationCm) || 0,
+    ),
+    0,
+  ),
+});
+
+const isBetterBestEffort = (candidate, currentBest) => {
+  if (!currentBest) return true;
+  const candidateScore = buildBestEffortScore(candidate);
+  const currentScore = buildBestEffortScore(currentBest);
+
+  if (candidateScore.violationCount !== currentScore.violationCount) {
+    return candidateScore.violationCount < currentScore.violationCount;
+  }
+  if (candidateScore.totalDeviation !== currentScore.totalDeviation) {
+    return candidateScore.totalDeviation < currentScore.totalDeviation;
+  }
+  return candidateScore.maxDeviation < currentScore.maxDeviation;
+};
 
 const profileInvariantFailureKey = (candidate) => {
   if (!candidate.ok) return "";
@@ -348,6 +444,8 @@ const runActGeneration = async (report, job) => {
   };
   let repeatedInvariantKey = "";
   let repeatedInvariantCount = 0;
+  let bestEffortCandidate = null;
+  let checkedProfilesCount = 0;
 
   if (!profiles || profiles.length === 0) {
     throw new Error(`Unknown act layoutProfile: ${layoutProfile}`);
@@ -356,64 +454,118 @@ const runActGeneration = async (report, job) => {
   const maxCheckedProfiles = profiles.length;
 
   try {
-    for (let index = 0; index < maxCheckedProfiles; index++) {
-      const profile = searchProfiles[index];
-      const checkedCount = index + 1;
-
-      if (checkedCount % 25 === 0) {
-        console.log(
-          `[runActGeneration] checked=${checkedCount}, currentProfile=${profile.name}`,
-        );
-      }
-
-      const result = await evaluateCandidate({
+    search: for (
+      let batchStart = 0;
+      batchStart < maxCheckedProfiles;
+      batchStart += ACT_CANDIDATE_BATCH_SIZE
+    ) {
+      const batchProfiles = searchProfiles.slice(
+        batchStart,
+        Math.min(
+          batchStart + ACT_CANDIDATE_BATCH_SIZE,
+          maxCheckedProfiles,
+        ),
+      );
+      const batchResults = await evaluateCandidateBatch({
         payload,
-        docxPath: buildCandidateDocxPath(job, checkedCount),
+        candidates: batchProfiles.map((profile, batchIndex) => ({
+          profile,
+          docxPath: buildCandidateDocxPath(
+            job,
+            batchStart + batchIndex + 1,
+          ),
+        })),
         pdfDir,
-        profile,
-        profileName: profile.name,
         layoutProfile,
         validationContext,
       });
-      artifacts.push(...result.artifacts);
+      artifacts.push(
+        ...batchResults.flatMap((result) => result.artifacts),
+      );
 
-      if (!isSafeCandidate(result)) {
-        recordRejection(rejectionSummary, result);
+      for (let batchIndex = 0; batchIndex < batchResults.length; batchIndex++) {
+        const result = batchResults[batchIndex];
+        const profile = batchProfiles[batchIndex];
+        const checkedCount = batchStart + batchIndex + 1;
+        checkedProfilesCount = checkedCount;
 
-        const invariantKey = profileInvariantFailureKey(result);
-        if (invariantKey && invariantKey === repeatedInvariantKey) {
-          repeatedInvariantCount += 1;
-        } else {
-          repeatedInvariantKey = invariantKey;
-          repeatedInvariantCount = invariantKey ? 1 : 0;
-        }
-
-        if (repeatedInvariantCount >= PROFILE_INVARIANT_REPEAT_LIMIT) {
-          logRejectionSummary(rejectionSummary, checkedCount);
-          throw new Error(
-            `Act profile-invariant validation failed after ${checkedCount} profiles: ${invariantKey}`,
+        if (checkedCount % 25 === 0) {
+          console.log(
+            `[runActGeneration] checked=${checkedCount}, currentProfile=${profile.name}`,
           );
         }
 
-        await cleanupArtifacts(result.artifacts);
-        continue;
-      }
+        if (!isSafeCandidate(result)) {
+          recordRejection(rejectionSummary, result);
 
+          let keepResultAsBestEffort = false;
+          if (
+            isSafeBestEffortCandidate(result) &&
+            isBetterBestEffort(result, bestEffortCandidate)
+          ) {
+            if (bestEffortCandidate) {
+              await cleanupArtifacts(bestEffortCandidate.artifacts);
+            }
+            bestEffortCandidate = result;
+            keepResultAsBestEffort = true;
+          }
+
+          const invariantKey = profileInvariantFailureKey(result);
+          if (invariantKey && invariantKey === repeatedInvariantKey) {
+            repeatedInvariantCount += 1;
+          } else {
+            repeatedInvariantKey = invariantKey;
+            repeatedInvariantCount = invariantKey ? 1 : 0;
+          }
+
+          if (repeatedInvariantCount >= PROFILE_INVARIANT_REPEAT_LIMIT) {
+            logRejectionSummary(rejectionSummary, checkedCount);
+            if (bestEffortCandidate) break search;
+            throw new Error(
+              `Act profile-invariant validation failed after ${checkedCount} profiles: ${invariantKey}`,
+            );
+          }
+
+          if (!keepResultAsBestEffort) {
+            await cleanupArtifacts(result.artifacts);
+          }
+          continue;
+        }
+
+        const promoted = await promoteCandidate({
+          candidate: result,
+          finalDocxPath,
+          finalPdfPath,
+        });
+        console.log(
+          `[runActGeneration] selected first fully valid profile=${profile.name} checked=${checkedCount}`,
+        );
+        lastSuccessfulProfileByLayout.set(layoutProfile, profile.name);
+        return buildResult(promoted, "passed");
+      }
+    }
+
+    logRejectionSummary(rejectionSummary, checkedProfilesCount);
+
+    if (bestEffortCandidate) {
       const promoted = await promoteCandidate({
-        candidate: result,
+        candidate: bestEffortCandidate,
         finalDocxPath,
         finalPdfPath,
       });
-      console.log(
-        `[runActGeneration] selected first fully valid profile=${profile.name} checked=${checkedCount}`,
+      const score = buildBestEffortScore(bestEffortCandidate);
+      console.warn(
+        `[runActGeneration] selected safe best-effort profile=${bestEffortCandidate.profileName} checked=${checkedProfilesCount} score=${JSON.stringify(score)}`,
       );
-      lastSuccessfulProfileByLayout.set(layoutProfile, profile.name);
-      return buildResult(promoted, "passed");
+      lastSuccessfulProfileByLayout.set(
+        layoutProfile,
+        bestEffortCandidate.profileName,
+      );
+      return buildResult(promoted, "best_effort");
     }
 
-    logRejectionSummary(rejectionSummary, maxCheckedProfiles);
     throw new Error(
-      `No fully valid act profile found after checking ${maxCheckedProfiles} profiles`,
+      `No safe act profile found after checking ${checkedProfilesCount} profiles`,
     );
   } finally {
     await cleanupArtifacts(

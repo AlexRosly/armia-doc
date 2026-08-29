@@ -652,8 +652,10 @@ const validateActLayoutRules = (pages, context = {}, violations) => {
     missingCode: "ACT_EVENT_SECTION_MISSING",
     hangingCode: "ACT_EVENT_HEADING_HANGING",
     missingMessage: "Не знайдено розділ I — опис події",
-    hangingMessage: "Заголовок 'І. Опис події:' залишився без тексту",
+    hangingMessage:
+      "Після заголовка 'І. Опис події:' немає мінімум 2 рядків тексту",
     violations,
+    minLinesAfter: 2,
   });
 
   validateRequiredBlock({

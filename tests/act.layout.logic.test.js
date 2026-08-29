@@ -118,6 +118,20 @@ test("event heading cannot remain at the bottom without event text", () => {
   );
 });
 
+test("event heading requires at least two event lines on the same page", () => {
+  const lines = validLines();
+  const eventHeadingIndex = lines.indexOf("І. Опис події:");
+  const first = lines.slice(0, eventHeadingIndex + 2);
+  const second = lines
+    .slice(eventHeadingIndex + 2)
+    .filter((line) => line !== "Подію підтверджено матеріалами справи");
+  const violations = validate([page(1, first), page(2, second, true)]);
+
+  assert.ok(
+    violations.some((item) => item.code === "ACT_EVENT_HEADING_HANGING"),
+  );
+});
+
 test("subtotal and grand total cannot be split across pages", () => {
   const first = [
     "Майно за номенклатурою служби",

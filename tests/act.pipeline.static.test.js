@@ -15,7 +15,6 @@ test("Act generation uses the isolated Act validator", () => {
   assert.match(source, /layout\.passed\s*=/);
   assert.match(source, /candidate\.marginViolations\.length === 0/);
   assert.match(source, /selected first fully valid profile/);
-  assert.doesNotMatch(source, /best_effort/);
   assert.doesNotMatch(source, /require\("\.\/validateLayout"\)/);
 });
 
@@ -32,10 +31,17 @@ test("Act search cannot be silently narrowed by a stale environment value", () =
   const source = read("src/services/layout/runActGeneration.js");
 
   assert.match(source, /const maxCheckedProfiles = profiles\.length/);
+  assert.match(source, /ACT_CANDIDATE_BATCH_SIZE = 24/);
+  assert.match(source, /convertManyToPdf/);
+  assert.match(source, /evaluateCandidateBatch/);
   assert.match(source, /Math\.floor\(Math\.sqrt\(profiles\.length\)\)/);
   assert.match(source, /lastSuccessfulProfileByLayout/);
   assert.match(source, /PROFILE_INVARIANT_REPEAT_LIMIT = 8/);
   assert.match(source, /rejection summary checked=/);
+  assert.match(source, /isSafeBestEffortCandidate/);
+  assert.match(source, /item\.status === "below_min"/);
+  assert.match(source, /selected safe best-effort profile=/);
+  assert.match(source, /buildResult\(promoted, "best_effort"\)/);
   assert.doesNotMatch(source, /ACT_MAX_CHECKED_PROFILES/);
 });
 
@@ -91,6 +97,11 @@ test("Act generation preserves literal blank runs such as М. П.", () => {
 
   assert.match(source, /require\("pizzip"\)/);
   assert.match(source, /xml:space="preserve"/);
+  assert.match(source, /lastRenderedPageBreak/);
+  assert.match(source, /relaxEventHeadingPagination/);
+  assert.match(source, /isRemovableEmptyParagraph/);
+  assert.match(source, /keepNext\|keepLines/);
+  assert.match(source, /І\. Опис події:/);
   assert.match(source, /outputPath:\s*null/);
   assert.match(source, /fs\.writeFile\(outputPath, finalBuffer\)/);
 });
