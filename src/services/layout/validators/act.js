@@ -470,7 +470,7 @@ const validatePeopleSection = ({
 };
 
 const validateTotals = (pages, markers, violations) => {
-  const subtotalHits = findOccurrences(pages, "Разом за номенклатурою");
+  const subtotalHits = findOccurrences(pages, "Усього за номенклатурою");
   const expectedSubtotalCount = Math.max(
     0,
     Number(markers.expectedServiceSubtotalCount) || 0,
@@ -495,7 +495,7 @@ const validateTotals = (pages, markers, violations) => {
       pushViolation(
         violations,
         "ACT_TOTALS_BLOCK_SPLIT",
-        "Рядок 'Разом за номенклатурою' відірваний від наступного підсумку",
+        "Рядок 'Усього за номенклатурою' відірваний від наступного підсумку",
         page.pageNumber,
       );
     }

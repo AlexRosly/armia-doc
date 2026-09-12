@@ -198,11 +198,7 @@ const evaluateCandidateBatch = async ({
       await ensureParentDir(candidate.docxPath);
       await cleanupFileIfExists(candidate.docxPath);
       await cleanupFileIfExists(pdfPath);
-      await generateActDocument(
-        payload,
-        candidate.docxPath,
-        candidate.profile,
-      );
+      await generateActDocument(payload, candidate.docxPath, candidate.profile);
       const docxGeometry = await validateActDocxGeometry(
         candidate.docxPath,
         layoutProfile,
@@ -257,22 +253,23 @@ const evaluateCandidateBatch = async ({
           ...docxGeometry.hardViolations,
           ...layout.hardViolations,
         ];
-        layout.layoutFlags.actBlocksOk =
-          layout.hardViolations.length === 0;
+        layout.layoutFlags.actBlocksOk = layout.hardViolations.length === 0;
         layout.passed =
           layout.hardViolations.length === 0 &&
           layout.marginViolations.length === 0;
 
         if (DEBUG_ACT_LAYOUT) {
           console.log(
-            `[runActGeneration] layout result: ${baseResult.profileName} => ${JSON.stringify({
-              passed: layout.passed,
-              bottomMetric: layout.bottomMetric,
-              hardViolations: layout.hardViolations.map(
-                (violation) => violation.code,
-              ),
-              marginViolations: layout.marginViolations,
-            })}`,
+            `[runActGeneration] layout result: ${baseResult.profileName} => ${JSON.stringify(
+              {
+                passed: layout.passed,
+                bottomMetric: layout.bottomMetric,
+                hardViolations: layout.hardViolations.map(
+                  (violation) => violation.code,
+                ),
+                marginViolations: layout.marginViolations,
+              },
+            )}`,
           );
         }
 
@@ -319,9 +316,7 @@ const isSafeBestEffortCandidate = (candidate) =>
   candidate.ok &&
   candidate.hardViolations.length === 0 &&
   candidate.marginViolations.length > 0 &&
-  !candidate.marginViolations.some(
-    (item) => item.status === "below_min",
-  );
+  !candidate.marginViolations.some((item) => item.status === "below_min");
 
 const buildBestEffortScore = (candidate) => ({
   violationCount: candidate.marginViolations.length,
@@ -330,9 +325,7 @@ const buildBestEffortScore = (candidate) => ({
     0,
   ),
   maxDeviation: Math.max(
-    ...candidate.marginViolations.map(
-      (item) => Number(item.deviationCm) || 0,
-    ),
+    ...candidate.marginViolations.map((item) => Number(item.deviationCm) || 0),
     0,
   ),
 });
@@ -386,11 +379,7 @@ const logRejectionSummary = (summary, checkedCount) => {
   );
 };
 
-const promoteCandidate = async ({
-  candidate,
-  finalDocxPath,
-  finalPdfPath,
-}) => {
+const promoteCandidate = async ({ candidate, finalDocxPath, finalPdfPath }) => {
   await ensureParentDir(finalDocxPath);
   await ensureParentDir(finalPdfPath);
   await cleanupFileIfExists(finalDocxPath);
@@ -461,27 +450,19 @@ const runActGeneration = async (report, job) => {
     ) {
       const batchProfiles = searchProfiles.slice(
         batchStart,
-        Math.min(
-          batchStart + ACT_CANDIDATE_BATCH_SIZE,
-          maxCheckedProfiles,
-        ),
+        Math.min(batchStart + ACT_CANDIDATE_BATCH_SIZE, maxCheckedProfiles),
       );
       const batchResults = await evaluateCandidateBatch({
         payload,
         candidates: batchProfiles.map((profile, batchIndex) => ({
           profile,
-          docxPath: buildCandidateDocxPath(
-            job,
-            batchStart + batchIndex + 1,
-          ),
+          docxPath: buildCandidateDocxPath(job, batchStart + batchIndex + 1),
         })),
         pdfDir,
         layoutProfile,
         validationContext,
       });
-      artifacts.push(
-        ...batchResults.flatMap((result) => result.artifacts),
-      );
+      artifacts.push(...batchResults.flatMap((result) => result.artifacts));
 
       for (let batchIndex = 0; batchIndex < batchResults.length; batchIndex++) {
         const result = batchResults[batchIndex];

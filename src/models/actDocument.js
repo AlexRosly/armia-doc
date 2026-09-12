@@ -94,11 +94,11 @@ const CostSchema = Schema(
     //   default: "",
     // },
 
-    // totalResidualCostUah: {
-    //   type: String,
+    totalResidualCostUah: {
+      type: String,
 
-    //   default: "",
-    // },
+      default: "",
+    },
 
     currency: {
       type: String,
@@ -116,11 +116,11 @@ const CostSchema = Schema(
 
 const WriteOffValueSchema = Schema(
   {
-    totalItemsCount: {
-      type: String,
+    //   totalItemsCount: {
+    //     type: String,
 
-      default: "",
-    },
+    //     default: "",
+    //   },
 
     grandTotalResidualCostUah: {
       type: String,
