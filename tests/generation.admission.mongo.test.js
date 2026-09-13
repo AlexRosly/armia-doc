@@ -28,7 +28,15 @@ test("real Mongo transactions: concurrent admission, rollback, changed payload a
     await Source.createCollection();
     const models = { GenerationJob, documentModels: { report: Source } };
     const index = load("src/services/generation/ensureActiveJobIndex.js", { "../../models": models });
+    // Reproduce the production migration: multiple active legacy records with
+    // null/missing clientId must not prevent index creation. Bypass schema only
+    // to seed historical data that new requests are forbidden to create.
+    await GenerationJob.collection.insertMany([
+      { status: "processing", clientId: null }, { status: "processing", clientId: null },
+      { status: "queued" }, { status: "queued" },
+    ]);
     await index.ensureActiveJobIndex();
+    assert.equal(await GenerationJob.countDocuments({ clientId: null }), 4);
     const find = async (clientId, session) => GenerationJob.findOne({ clientId, status: { $in: ["queued", "processing"] } }).session(session || null);
     const createJob = load("src/services/generation/createGenerationJob.js", {
       "../../models": models, "./findActiveGenerationJobByClientId": find,
@@ -45,13 +53,13 @@ test("real Mongo transactions: concurrent admission, rollback, changed payload a
     const results = await Promise.all(Array.from({ length: 20 }, () => request(payload)));
     assert.equal(new Set(results.map(r => String(r.job._id))).size, 1);
     assert.equal(starts, 1);
-    assert.equal(await GenerationJob.countDocuments(), 1);
+    assert.equal(await GenerationJob.countDocuments({ clientId: "test-client" }), 1);
     assert.equal(await Source.countDocuments(), 1, "loser transactions must roll back source documents");
     await assert.rejects(request({ ...payload, data: { text: "changed" } }), { code: "ACTIVE_GENERATION_DATA_CONFLICT" });
     await GenerationJob.updateOne({ _id: results[0].job._id }, { $set: { status: "ready" } });
     await request(payload);
     assert.equal(starts, 2, "ready releases the active slot");
-    assert.equal(await GenerationJob.countDocuments({ status: "queued" }), 1);
+    assert.equal(await GenerationJob.countDocuments({ clientId: "test-client", status: "queued" }), 1);
     // A different browser session has its own slot.
     await persist({ model: Source, payload, clientId: "another-client" });
     assert.equal(starts, 3);

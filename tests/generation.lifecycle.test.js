@@ -222,6 +222,7 @@ test("index installation is shared, unique across active statuses, and retries a
       calls++;
       assert.equal(key.clientId, 1);
       assert.equal(options.unique, true);
+      assert.equal(options.partialFilterExpression.clientId.$type, "string");
       assert.equal(options.partialFilterExpression.status.$in.join(","), "queued,processing");
       if (calls === 1) throw new Error("index unavailable");
       return options.name;
@@ -282,4 +283,27 @@ for (const unavailable of [false, true]) test(`API listens when admission index 
   assert.equal(exits, 0);
   assert.equal(errors.length, unavailable ? 1 : 0);
   if (unavailable) assert.equal(errors[0][0].err.code, 85);
+});
+
+test("index preflight uses exactly the index filter and never changes legacy jobs", async () => {
+  let finish, filter;
+  const done = new Promise(resolve => { finish = resolve; });
+  const models = { GenerationJob: { collection: {
+    listIndexes: () => ({ toArray: async () => [] }),
+  }, aggregate: async pipeline => { filter = pipeline[0].$match; return []; } } };
+  const index = load("src/services/generation/ensureActiveJobIndex.js", { "../../models": models });
+  load("scripts/check-active-generation-index.js", {
+    dotenv: { config() {} },
+    mongoose: { set: (key, value) => { assert.equal(key, "autoIndex"); assert.equal(value, false); },
+      connection: { db: { admin: () => ({ command: async () => ({ version: "8.0.32" }) }) } },
+      disconnect: async () => finish() },
+    "../src/config/db": async () => {},
+    "../src/models": models,
+    "../src/services/generation/ensureActiveJobIndex": { ...index,
+      ensureActiveJobIndex: () => assert.fail("read-only preflight must not create indexes") },
+  }, { process: { argv: [] } });
+  await done;
+  assert.equal(filter, index.OPTIONS.partialFilterExpression);
+  assert.equal(filter.clientId.$type, "string");
+  assert.equal(filter.status.$in.join(","), "queued,processing");
 });
