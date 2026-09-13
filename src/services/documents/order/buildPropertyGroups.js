@@ -51,7 +51,10 @@ const buildOrderPropertyText = (property = {}) => {
   return `${baseText}, ${costText}`;
 };
 
-const buildPropertyGroups = (lostProperty = []) => {
+const buildPropertyGroups = (
+  lostProperty = [],
+  { includeCost = true } = {},
+) => {
   const services = Array.isArray(lostProperty) ? lostProperty : [];
 
   const totalItemsCount = services.reduce((total, service) => {
@@ -90,7 +93,9 @@ const buildPropertyGroups = (lostProperty = []) => {
           items: listOfProperty.map((property) => {
             globalItemIndex += 1;
 
-            const baseText = buildOrderPropertyText(property);
+            const baseText = includeCost
+              ? buildOrderPropertyText(property)
+              : stripEndingPunctuation(buildPropertyText(property));
             const ending = globalItemIndex === totalItemsCount ? "." : ";";
             const text = `${baseText}${ending}`;
 

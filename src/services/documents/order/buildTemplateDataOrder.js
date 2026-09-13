@@ -225,6 +225,7 @@
 
 // module.exports = buildTemplateDataOrder;
 const buildPropertyGroups = require("./buildPropertyGroups");
+const buildIntroPropertyGroups = require("./buildIntroPropertyGroups");
 
 const splitToParagraphs = (value = "") => {
   return String(value)
@@ -295,6 +296,7 @@ const buildTemplateDataOrder = (payload) => {
     orderNumber: data.orderDetails?.orderNumber || "_______",
 
     eventDescription: data.eventDescription?.text || "",
+    introServices: buildIntroPropertyGroups(data.lostProperty || []),
     services: propertyGroups,
     eventConfirmation: splitToParagraphs(data.eventConfirmation?.text || ""),
     directiveSection: normalizeDirectiveSection(
