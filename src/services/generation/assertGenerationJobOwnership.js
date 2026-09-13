@@ -1,5 +1,7 @@
 const { GenerationJob } = require("../../models");
 
+const recoverInterruptedGenerationJob = require("./recoverInterruptedGenerationJob");
+
 const assertGenerationJobOwnership = async ({ jobId, clientId }) => {
   const job = await GenerationJob.findById(jobId);
 
@@ -15,7 +17,7 @@ const assertGenerationJobOwnership = async ({ jobId, clientId }) => {
     throw error;
   }
 
-  return job;
+  return await recoverInterruptedGenerationJob(job) || job;
 };
 
 module.exports = assertGenerationJobOwnership;

@@ -36,6 +36,9 @@
 const cleanupExpiredJobs = require("./cleanupExpiredJobs");
 const cleanupOrphanFiles = require("./cleanupOrphanFiles");
 
+const { GenerationJob } = require("../../models");
+const recoverInterruptedGenerationJob = require("../generation/recoverInterruptedGenerationJob");
+
 const CLEANUP_INTERVAL_MS = Number(
   process.env.CLEANUP_INTERVAL_MS || 10 * 60 * 1000,
 );
@@ -58,6 +61,12 @@ const startCleanupScheduler = () => {
         `[cleanupScheduler] tick started at ${new Date().toISOString()}`,
       );
 
+      for await (const job of GenerationJob.find({
+        status: { $in: ["queued", "processing"] },
+        "execution.kind": "inline",
+      }).cursor()) {
+        await recoverInterruptedGenerationJob(job);
+      }
       await cleanupExpiredJobs();
       await cleanupOrphanFiles();
 

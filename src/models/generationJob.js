@@ -159,11 +159,11 @@ const layoutCheckSchema = Schema(
     status: {
       type: String,
       enum: ["passed", "best_effort", "failed"],
-      default: "passed",
+      default: undefined,
     },
     profile: {
       type: String,
-      default: "default_14_100_top_20",
+      default: undefined,
     },
     orderProfile: {
       type: String,
@@ -180,6 +180,7 @@ const layoutCheckSchema = Schema(
 
 const GenerationJobSchema = Schema(
   {
+    requestFingerprint: { type: String },
     clientId: {
       type: String,
       required: true,
@@ -221,7 +222,21 @@ const GenerationJobSchema = Schema(
     },
     layoutCheck: {
       type: layoutCheckSchema,
-      default: () => ({}),
+      default: undefined,
+    },
+    execution: {
+      type: new Schema({
+        kind: { type: String, enum: ["inline", "queue"] },
+        instanceId: String,
+        pid: Number,
+        uid: Number,
+        host: String,
+        machine: String,
+        boot: String,
+        pidNamespace: String,
+        processStart: String,
+      }, { _id: false }),
+      default: undefined,
     },
     expiresAt: {
       type: Date,

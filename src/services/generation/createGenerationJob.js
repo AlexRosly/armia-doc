@@ -22,7 +22,9 @@
 const { GenerationJob } = require("../../models");
 const findActiveGenerationJobByClientId = require("./findActiveGenerationJobByClientId");
 
-const createGenerationJob = async (document, clientId, session = null) => {
+const { createExecutionOwner } = require("./inlineExecutionOwner");
+
+const createGenerationJob = async (document, clientId, session = null, requestFingerprint) => {
   const existingJob = await findActiveGenerationJobByClientId(
     clientId,
     session,
@@ -39,6 +41,8 @@ const createGenerationJob = async (document, clientId, session = null) => {
     [
       {
         clientId,
+        execution: await createExecutionOwner(),
+        requestFingerprint,
         caseId: document.caseId,
         documentType: document.documentType,
         documentId: document._id,
