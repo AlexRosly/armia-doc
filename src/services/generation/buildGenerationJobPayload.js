@@ -122,7 +122,7 @@ const buildDownloadsPayload = (job) => {
 };
 
 const buildLayoutCheckPayload = (job) => {
-  if (!job.layoutCheck) return undefined;
+  if (job.status !== "ready" || !job.layoutCheck) return undefined;
 
   const layoutCheck = {};
 

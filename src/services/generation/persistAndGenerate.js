@@ -266,6 +266,8 @@ const startGeneration = require("./startGeneration");
 const findActiveGenerationJobByClientId = require("./findActiveGenerationJobByClientId");
 const { GenerationJob, documentModels } = require("../../models");
 
+const assertCompatibleActiveJob = require("./assertCompatibleActiveJob");
+
 const loadDocumentForJob = async (job) => {
   const Model = documentModels[job.documentType];
 
@@ -284,91 +286,75 @@ const loadDocumentForJob = async (job) => {
   return document;
 };
 
-const persistAndGenerate = async ({
-  model,
-  payload,
-  clientId,
-  existingDocument = null,
-}) => {
-  const activeJob = await findActiveGenerationJobByClientId(clientId);
+const fingerprintRequest = require("./requestFingerprint");
+const { ensureActiveJobIndex } = require("./ensureActiveJobIndex");
 
-  if (activeJob) {
-    const activeDocument = await loadDocumentForJob(activeJob);
-
-    return {
-      document: activeDocument,
-      job: activeJob,
-      reused: true,
-      existing: true,
-    };
+const persistAndGenerate = async ({ model, payload, clientId, existingDocument = null }) => {
+  if (typeof clientId !== "string" || !clientId.trim()) {
+    throw Object.assign(new Error("Не вдалося визначити сесію браузера. Повторіть запит."), {
+      status: 400, code: "CLIENT_ID_REQUIRED",
+    });
   }
+  // Fail closed: no new job can be inserted before the DB constraint exists.
+  try {
+    await ensureActiveJobIndex();
+  } catch (cause) {
+    throw Object.assign(new Error("Створення нових документів тимчасово недоступне. Спробуйте пізніше або зверніться до підтримки.", { cause }), {
+      status: 503, code: "GENERATION_ADMISSION_UNAVAILABLE",
+    });
+  }
+  const fingerprint = fingerprintRequest(payload);
+  const reuse = async active => {
+    assertCompatibleActiveJob(active, payload, fingerprint);
+    return { document: await loadDocumentForJob(active), job: active, reused: true, existing: true };
+  };
+  const activeJob = await findActiveGenerationJobByClientId(clientId);
+  if (activeJob) return reuse(activeJob);
 
   const session = await mongoose.startSession();
-
-  let document;
-  let job;
-  let committed = false;
-
+  let document, job, existing;
   try {
-    session.startTransaction();
-
-    document = existingDocument;
-
-    if (!document) {
-      const [createdDocument] = await model.create([payload], { session });
-      document = createdDocument;
-    }
-
-    const createJobResult = await createGenerationJob(
-      document,
-      clientId,
-      session,
-    );
-    job = createJobResult.job;
-
-    if (createJobResult.existing) {
-      await session.abortTransaction();
-      committed = true;
-
-      const activeDocument = await loadDocumentForJob(job);
-
-      return {
-        document: activeDocument,
-        job,
-        reused: true,
-        existing: true,
-      };
-    }
-
-    await session.commitTransaction();
-    committed = true;
+    // Driver handles transient transaction retries and unknown commit results.
+    // No generation/queue/file side effects occur inside this callback.
+    await session.withTransaction(async () => {
+      document = existingDocument;
+      if (!document) {
+        [document] = await model.create([payload], { session });
+      }
+      const result = await createGenerationJob(document, clientId, session, fingerprint);
+      job = result.job;
+      existing = result.existing;
+      if (existing) {
+        assertCompatibleActiveJob(job, payload, fingerprint);
+        // Roll back the speculative source document as well as the transaction.
+        throw Object.assign(new Error("Concurrent active generation"), { code: "ACTIVE_JOB_RACE" });
+      }
+    });
   } catch (error) {
-    if (!committed) {
-      await session.abortTransaction();
+    const admissionDuplicate = error.code === 11000 &&
+      (error.message?.includes("one_active_generation_per_client") ||
+       (error.keyPattern?.clientId === 1 && Object.keys(error.keyPattern).length === 1));
+    if (admissionDuplicate || error.code === "ACTIVE_JOB_RACE") {
+      // withTransaction has aborted; read the winner outside its old snapshot.
+      const winner = await findActiveGenerationJobByClientId(clientId);
+      if (winner) return reuse(winner);
+      throw Object.assign(new Error("Стан попередньої генерації змінився. Перевірте його та повторіть запит."), {
+        status: 409, code: "GENERATION_RETRY_REQUIRED",
+      });
     }
-
     throw error;
   } finally {
     await session.endSession();
   }
-
   try {
     await startGeneration(document, job);
   } catch (error) {
     await GenerationJob.findByIdAndUpdate(job._id, {
-      status: "failed",
-      error: `Queue enqueue failed: ${error.message}`,
+      status: "failed", error: `Queue enqueue failed: ${error.message}`,
     });
-
     throw error;
   }
-
-  return {
-    document,
-    job,
-    reused: Boolean(existingDocument),
-    existing: false,
-  };
+  return { document, job, reused: Boolean(existingDocument), existing: false };
 };
 
 module.exports = persistAndGenerate;

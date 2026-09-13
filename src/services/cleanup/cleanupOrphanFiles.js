@@ -1,5 +1,6 @@
 const fs = require("fs/promises");
 const path = require("path");
+const { GenerationJob } = require("../../models");
 
 const STORAGE_ROOT = path.resolve(__dirname, "../../../storage");
 const STORAGE_DIRS = ["docx", "pdf", "armdoc"];
@@ -65,6 +66,20 @@ const cleanupOrphanFiles = async () => {
         const ageMs = now - stat.mtimeMs;
 
         if (ageMs < ORPHAN_MAX_AGE_MS) {
+          skippedCount += 1;
+          continue;
+        }
+
+        // Candidate files and final files share a leading Mongo job ID.
+        // Age alone does not make a file orphaned. DB failure must not delete it.
+        const ownerId = entry.name.match(/^([a-fA-F0-9]{24})(?:_|\.)/)?.[1];
+        if (ownerId && await GenerationJob.exists({
+          _id: ownerId,
+          $or: [
+            { status: { $in: ["queued", "processing"] } },
+            { status: "ready", expiresAt: { $gt: new Date() } },
+          ],
+        })) {
           skippedCount += 1;
           continue;
         }
