@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 require("dotenv").config();
 const mongoose = require("mongoose");
+mongoose.set("autoIndex", false);
 const connectDB = require("../src/config/db");
 const { GenerationJob } = require("../src/models");
-const { ensureActiveJobIndex } = require("../src/services/generation/ensureActiveJobIndex");
+const { ensureActiveJobIndex, OPTIONS } = require("../src/services/generation/ensureActiveJobIndex");
 
 (async () => {
   await connectDB();
@@ -22,7 +23,7 @@ const { ensureActiveJobIndex } = require("../src/services/generation/ensureActiv
     ({ name, key, unique, partialFilterExpression })) }, null, 2));
   // Do not output client cookies or document contents.
   const duplicates = await GenerationJob.aggregate([
-    { $match: { status: { $in: ["queued", "processing"] } } },
+    { $match: OPTIONS.partialFilterExpression },
     { $group: { _id: "$clientId", count: { $sum: 1 }, jobs: { $push: "$_id" } } },
     { $match: { count: { $gt: 1 } } },
     { $project: { _id: 0, count: 1, jobs: 1 } },

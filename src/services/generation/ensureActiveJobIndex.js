@@ -3,7 +3,12 @@ const NAME = "one_active_generation_per_client";
 const OPTIONS = {
   name: NAME,
   unique: true,
-  partialFilterExpression: { status: { $in: ["queued", "processing"] } },
+  partialFilterExpression: {
+    // Historical jobs without a clientId do not belong to a browser session.
+    // New requests require a non-empty string before creating any records.
+    clientId: { $type: "string" },
+    status: { $in: ["queued", "processing"] },
+  },
 };
 let pending;
 const ensureActiveJobIndex = () => {
