@@ -1,8 +1,8 @@
 const { buildPropertyText } = require("../shared");
 
-const stripEndingPunctuation = (value = "") =>
+const stripEndingSeparators = (value = "") =>
   String(value)
-    .replace(/[.;:,]+$/g, "")
+    .trimEnd().replace(/[;:,]+$/g, "")
     .trim();
 const normalizeCostLabel = (value = "") => {
   const raw = String(value ?? "").trim();
@@ -41,7 +41,7 @@ const buildOrderPropertyCostText = (property = {}) => {
 };
 
 const buildOrderPropertyText = (property = {}) => {
-  const baseText = stripEndingPunctuation(buildPropertyText(property));
+  const baseText = stripEndingSeparators(buildPropertyText(property));
   const costText = buildOrderPropertyCostText(property);
 
   if (!costText) {
@@ -95,9 +95,9 @@ const buildPropertyGroups = (
 
             const baseText = includeCost
               ? buildOrderPropertyText(property)
-              : stripEndingPunctuation(buildPropertyText(property));
+              : stripEndingSeparators(buildPropertyText(property));
             const ending = globalItemIndex === totalItemsCount ? "." : ";";
-            const text = `${baseText}${ending}`;
+            const text = `${ending === "." ? baseText.replace(/\.+$/, "") : baseText}${ending}`;
 
             return {
               // text: `${baseText}${ending}`,
