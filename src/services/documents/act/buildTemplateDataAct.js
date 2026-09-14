@@ -212,6 +212,12 @@ const normalizeCommanderDate = (params = {}) => {
   };
 };
 
+const countPropertyPositions = (lostProperty = []) =>
+  lostProperty.reduce(
+    (sum, service) => sum + (service.listOfProperty || []).length,
+    0,
+  );
+
 const buildTemplateDataAct = (payload) => {
   const data = payload.data || {};
   const services = buildPropertyGroups(data.lostProperty || []);
@@ -222,6 +228,8 @@ const buildTemplateDataAct = (payload) => {
   const normalizeDate = normalizeCommanderDate(
     commanderConclusion.signatureDate,
   );
+
+  const totalItemsCount = countPropertyPositions(data.lostProperty || []);
 
   return {
     copyNumber: data.approval?.copyNumber || "",
@@ -237,7 +245,7 @@ const buildTemplateDataAct = (payload) => {
     militaryUnit: data.accountingDetails?.militaryUnit || "",
 
     services,
-    totalItemsCount: data.writeOffValue?.totalItemsCount || "",
+    totalItemsCount,
     grandTotalResidualCostUah:
       data.writeOffValue?.grandTotalResidualCostUah || "",
 
