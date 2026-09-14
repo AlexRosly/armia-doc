@@ -67,8 +67,8 @@ test("generation reaches ready when all progress publications reject", async () 
     "../layout": { runProfiles: async () => ({
       docxPath: "/tmp/report.docx", pdfPath: "/tmp/report.pdf", status: "passed", profile: "tested",
     }) },
-    "../../models": { GenerationJob: { findByIdAndUpdate: async (id, update) => {
-      updates.push(update); return { _id: id, ...update };
+    "../../models": { GenerationJob: { findOneAndUpdate: async (filter, update) => {
+      updates.push(update); return { _id: filter._id, ...update };
     } } },
     "../generationEvents": { publishGenerationEvent: async () => {
       published++; throw new Error("Redis command timed out");
@@ -274,6 +274,7 @@ for (const unavailable of [false, true]) test(`API listens when admission index 
     "./src/app": { listen: (_port, callback) => { listens++; callback(); } },
     "./src/utils": { logger: { info() {}, error: (...args) => errors.push(args) } },
     "./src/config/db": async () => {},
+    "./src/services/generation/lifecycle/cleanup": { start() {} },
     "./src/services/generation/ensureActiveJobIndex": { ensureActiveJobIndex: async () => {
       if (unavailable) throw Object.assign(new Error("IndexOptionsConflict"), { code: 85 });
     } },

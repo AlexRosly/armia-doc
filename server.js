@@ -10,6 +10,7 @@ connectDB()
     // Existing status/download routes stay available if admission is unavailable.
     require("./src/services/generation/ensureActiveJobIndex").ensureActiveJobIndex()
       .catch(err => logger.error({ err }, "Generation admission unavailable; new jobs are blocked"));
+    require("./src/services/generation/lifecycle/cleanup").start();
     app.listen(PORT, () => {
       logger.info("Server started on port " + PORT);
     });

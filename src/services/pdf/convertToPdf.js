@@ -163,6 +163,7 @@ const runLibreOfficeConversion = async (
         Math.max(0, inputs.length - 1) * EXTRA_BATCH_FILE_TIMEOUT_MS,
   );
   const args = [
+    ...(process.env.GENERATION_LO_PROFILE ? [`-env:UserInstallation=${process.env.GENERATION_LO_PROFILE}`] : []),
     "--headless",
     "--nologo",
     "--nolockcheck",

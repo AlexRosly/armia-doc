@@ -180,6 +180,10 @@ const layoutCheckSchema = Schema(
 
 const GenerationJobSchema = Schema(
   {
+    lifecycleManaged: { type: Boolean, default: false },
+    cancelRequestedAt: Date,
+    cancelReason: String,
+    executorStoppedAt: Date,
     requestFingerprint: { type: String },
     clientId: {
       type: String,
@@ -226,6 +230,8 @@ const GenerationJobSchema = Schema(
     },
     execution: {
       type: new Schema({
+        supervised: Boolean,
+        launchId: String,
         kind: { type: String, enum: ["inline", "queue"] },
         instanceId: String,
         pid: Number,

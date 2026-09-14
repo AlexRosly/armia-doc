@@ -6,7 +6,7 @@ const { GenerationJob, documentModels } = require("../../models");
 const safeDelete = async (filePath) => {
   try {
     await fs.unlink(filePath);
-  } catch (_) {}
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
 };
 
 const deleteGenerationJob = async (jobId) => {
@@ -36,7 +36,7 @@ const deleteGenerationJob = async (jobId) => {
 
   const DocumentModel = documentModels[job.documentType];
 
-  if (DocumentModel) {
+  if (DocumentModel && !(await GenerationJob.exists({ documentId: job.documentId, _id: { $ne: job._id } }))) {
     await DocumentModel.deleteOne({
       _id: job.documentId,
     });

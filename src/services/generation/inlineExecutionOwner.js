@@ -18,8 +18,8 @@ const readHostIdentity = async () => ({
   pidNamespace: await fs.readlink("/proc/self/ns/pid"),
 });
 
-const createExecutionOwner = async () => {
-  if (process.env.QUEUE_ENABLED !== "false") return { kind: "queue" };
+const createExecutionOwner = async ({ forceInline = false } = {}) => {
+  if (!forceInline && process.env.QUEUE_ENABLED !== "false") return { kind: "queue" };
   const owner = { kind: "inline", instanceId, pid: process.pid, uid: process.getuid?.() };
   try {
     Object.assign(owner, await readHostIdentity());

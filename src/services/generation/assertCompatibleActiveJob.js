@@ -8,6 +8,9 @@ const conflict = (code, message) => {
 };
 
 const assertCompatibleActiveJob = (job, requested, fingerprint) => {
+  if (job.cancelRequestedAt) {
+    conflict("GENERATION_CANCELLING", "Попередню генерацію зупиняємо та очищаємо. Спробуйте створити документ трохи пізніше.");
+  }
   if (job.documentType !== requested.documentType || job.mode !== requested.mode) {
     conflict("ACTIVE_GENERATION_CONFLICT",
       `У вас уже створюється ${documentLabels[job.documentType] || "інший документ"}. Нову генерацію не запущено. Дочекайтеся завершення попередньої задачі або зверніться до підтримки.`);

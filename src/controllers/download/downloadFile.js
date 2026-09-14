@@ -114,6 +114,10 @@ const downloadFile = async (req, res) => {
       clientId: req.clientId,
     });
 
+    if (job.cancelRequestedAt || (job.status === "ready" && job.expiresAt <= new Date())) {
+      return res.status(410).json({ error: "DOCUMENT_UNAVAILABLE" });
+    }
+    if (job.status !== "ready") return res.status(409).json({ error: "DOCUMENT_NOT_READY" });
     const fileName = job.files?.[type];
 
     if (!fileName) {
@@ -122,7 +126,7 @@ const downloadFile = async (req, res) => {
       });
     }
 
-    const filePath = path.join(process.cwd(), "storage", storageDir, fileName);
+    const filePath = path.join(require("../../services/generation/storageRoot")(job), storageDir, path.basename(fileName));
 
     await fs.access(filePath);
 
