@@ -3,7 +3,7 @@ const { isInlineOwnerStopped } = require("./inlineExecutionOwner");
 const { ACTIVE_GENERATION_JOB_STATUSES } = require("./constants");
 
 const recoverInterruptedGenerationJob = async (job) => {
-  if (!job || !ACTIVE_GENERATION_JOB_STATUSES.includes(job.status) ||
+  if (!job || job.lifecycleManaged || !ACTIVE_GENERATION_JOB_STATUSES.includes(job.status) ||
       !job.execution?.instanceId || !(await isInlineOwnerStopped(job.execution))) return job;
 
   const updated = await GenerationJob.findOneAndUpdate(

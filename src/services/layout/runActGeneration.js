@@ -1,3 +1,4 @@
+const generationStorageRoot = require("../generation/storageRoot");
 const fs = require("fs/promises");
 const path = require("path");
 
@@ -36,18 +37,17 @@ const buildPayload = (report) => ({
   templateType: report.templateType,
 });
 
-const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
+const buildPdfDir = () => path.join(generationStorageRoot(), "pdf");
 
 const buildFinalDocxPath = (job) =>
-  path.join(process.cwd(), "storage", "docx", `${job._id}_act.docx`);
+  path.join(generationStorageRoot(), "docx", `${job._id}_act.docx`);
 
 const buildFinalPdfPath = (job) =>
-  path.join(process.cwd(), "storage", "pdf", `${job._id}_act.pdf`);
+  path.join(generationStorageRoot(), "pdf", `${job._id}_act.pdf`);
 
 const buildCandidateDocxPath = (job, index) =>
   path.join(
-    process.cwd(),
-    "storage",
+    generationStorageRoot(),
     "docx",
     `${job._id}__act_candidate_${String(index).padStart(4, "0")}.docx`,
   );

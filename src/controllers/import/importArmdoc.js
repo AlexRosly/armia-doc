@@ -29,6 +29,7 @@ const importArmdoc = async (req, res, next) => {
       model: Model,
       payload: document,
       clientId: req.clientId,
+      lifecycleToken: req.get("X-Generation-Token") || null,
     });
 
     return res.status(existing ? 200 : 201).json({

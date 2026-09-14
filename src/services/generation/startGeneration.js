@@ -137,6 +137,15 @@ const publishQueuedEvent = async (job) => {
 };
 
 const startGeneration = async (document, job) => {
+  if (job.lifecycleManaged && !isQueueEnabled) {
+    // Async execution remains tracked by the durable launch record.
+    void require("./lifecycle/supervisor").launch(job).catch(async error => {
+      console.error("[managed-generation] supervisor failed:", error.code || error.name);
+      const { GenerationJob } = require("../../models");
+      await GenerationJob.updateOne({ _id: job._id }, { $set: { cancelRequestedAt: new Date(), cancelReason: "launch_failed" } }).catch(() => {});
+    });
+    return;
+  }
   if (!isQueueEnabled) {
     console.log(
       `[queue] disabled, starting async inline generation for mongo=${job._id}`,
@@ -162,7 +171,7 @@ const startGeneration = async (document, job) => {
     jobId: String(job._id),
     documentId: String(document._id),
     documentType: job.documentType,
-  });
+  }, job.lifecycleManaged ? { removeOnComplete: true, removeOnFail: true, attempts: 1 } : {});
 
   console.log(
     `[queue] enqueued generation job mongo=${job._id} bull=${bullJob.id} type=${job.documentType}`,

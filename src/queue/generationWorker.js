@@ -123,7 +123,8 @@ const startWorker = async () => {
         throw new Error(`Document not found: ${documentType}/${documentId}`);
       }
 
-      await runGenerationJob(document, job);
+      if (job.lifecycleManaged) await require("../services/generation/lifecycle/supervisor").launch(job);
+      else await runGenerationJob(document, job);
     },
     {
       connection,

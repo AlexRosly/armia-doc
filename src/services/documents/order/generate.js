@@ -1,3 +1,4 @@
+const generationStorageRoot = require("../../generation/storageRoot");
 const fs = require("fs/promises");
 const path = require("path");
 
@@ -7,7 +8,7 @@ const assembleOrderPrintPdf = require("./assembleOrderPrintPdf");
 const validateAssembledOrderPrintPdf = require("./validateAssembledOrderPrintPdf");
 const safeUnlink = require("./safeUnlink");
 
-const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
+const buildPdfDir = () => path.join(generationStorageRoot(), "pdf");
 const buildFinalPublicPdfPath = (outputPath, pdfDir) =>
   path.join(pdfDir, `${path.parse(outputPath).name}.pdf`);
 const buildFinalAssembledTempPdfPath = (outputPath, pdfDir) =>

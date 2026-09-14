@@ -952,6 +952,7 @@
 // };
 
 // module.exports = runGenerationJob;
+const generationStorageRoot = require("./storageRoot");
 const path = require("path");
 const fs = require("fs/promises");
 const { generateArmdoc } = require("../armdoc");
@@ -1001,8 +1002,7 @@ const buildArmdocPath = (job) => {
   const suffix = getArmdocTypeSuffix(job.documentType);
 
   return path.join(
-    process.cwd(),
-    "storage",
+    generationStorageRoot(),
     "armdoc",
     `${job._id}_${suffix}.armdoc`,
   );
@@ -1012,10 +1012,11 @@ const runGenerationJob = async (report, job) => {
   try {
     console.log(`[generation] step=mark-processing-start job=${job._id}`);
 
-    await GenerationJob.findByIdAndUpdate(job._id, {
-      status: "processing",
-      error: null,
-    });
+    const started = await GenerationJob.findOneAndUpdate(
+      { _id: job._id, cancelRequestedAt: null, status: { $in: ["queued", "processing"] } },
+      { status: "processing", error: null }, { returnDocument: "after" },
+    );
+    if (!started) return;
 
     await publishJobEvent({
       jobId: String(job._id),
@@ -1120,8 +1121,8 @@ const runGenerationJob = async (report, job) => {
       }),
     };
 
-    const updatedJob = await GenerationJob.findByIdAndUpdate(
-      job._id,
+    const updatedJob = await GenerationJob.findOneAndUpdate(
+      { _id: job._id, cancelRequestedAt: null, status: "processing" },
       {
         status: "ready",
         error: null,
@@ -1132,6 +1133,7 @@ const runGenerationJob = async (report, job) => {
       { returnDocument: "after" },
     );
 
+    if (!updatedJob) return;
     await publishJobEvent({
       ...buildGenerationJobPayload(updatedJob),
       step: "ready",
@@ -1143,8 +1145,8 @@ const runGenerationJob = async (report, job) => {
     console.error(error);
     console.log(`[generation] failed job=${job._id}: ${error.message}`);
 
-    const updatedJob = await GenerationJob.findByIdAndUpdate(
-      job._id,
+    const updatedJob = await GenerationJob.findOneAndUpdate(
+      { _id: job._id, cancelRequestedAt: null, status: "processing" },
       {
         status: "failed",
         error: error.message,

@@ -453,6 +453,7 @@ const cleanupSourceDocument = async (job) => {
 const cleanupExpiredJobs = async () => {
   const expiredJobs = await GenerationJob.find({
     status: "ready",
+    lifecycleManaged: { $ne: true },
     expiresAt: {
       $lte: new Date(),
     },

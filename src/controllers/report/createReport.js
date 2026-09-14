@@ -30,6 +30,7 @@ const createReport = async (req, res, next) => {
       model: ReportDocument,
       payload: req.body,
       clientId: req.clientId,
+      lifecycleToken: req.get("X-Generation-Token") || null,
     });
 
     return res.status(existing ? 200 : 201).json({

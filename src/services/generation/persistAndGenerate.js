@@ -289,7 +289,7 @@ const loadDocumentForJob = async (job) => {
 const fingerprintRequest = require("./requestFingerprint");
 const { ensureActiveJobIndex } = require("./ensureActiveJobIndex");
 
-const persistAndGenerate = async ({ model, payload, clientId, existingDocument = null }) => {
+const persistAndGenerate = async ({ model, payload, clientId, existingDocument = null, lifecycleToken = null }) => {
   if (typeof clientId !== "string" || !clientId.trim()) {
     throw Object.assign(new Error("Не вдалося визначити сесію браузера. Повторіть запит."), {
       status: 400, code: "CLIENT_ID_REQUIRED",
@@ -303,9 +303,12 @@ const persistAndGenerate = async ({ model, payload, clientId, existingDocument =
       status: 503, code: "GENERATION_ADMISSION_UNAVAILABLE",
     });
   }
+  const lifecycle = lifecycleToken ? require("./lifecycle/requests") : null;
+  const requestId = lifecycle ? await lifecycle.prepare(lifecycleToken, clientId) : null;
   const fingerprint = fingerprintRequest(payload);
   const reuse = async active => {
     assertCompatibleActiveJob(active, payload, fingerprint);
+    if (requestId) await lifecycle.attach(requestId, active, clientId);
     return { document: await loadDocumentForJob(active), job: active, reused: true, existing: true };
   };
   const activeJob = await findActiveGenerationJobByClientId(clientId);
@@ -321,9 +324,10 @@ const persistAndGenerate = async ({ model, payload, clientId, existingDocument =
       if (!document) {
         [document] = await model.create([payload], { session });
       }
-      const result = await createGenerationJob(document, clientId, session, fingerprint);
+      const result = await createGenerationJob(document, clientId, session, fingerprint, Boolean(requestId));
       job = result.job;
       existing = result.existing;
+      if (requestId) await lifecycle.attach(requestId, job, clientId, session);
       if (existing) {
         assertCompatibleActiveJob(job, payload, fingerprint);
         // Roll back the speculative source document as well as the transaction.

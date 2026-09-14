@@ -105,6 +105,7 @@ const hasKeys = (value) =>
 
 const buildDownloadsPayload = (job) => {
   const downloads = {};
+  if (job.cancelRequestedAt || job.status !== "ready" || job.expiresAt <= new Date()) return downloads;
 
   if (job.files?.docx) {
     downloads.docx = `/api/generation/${job._id}/download/docx`;
@@ -122,7 +123,7 @@ const buildDownloadsPayload = (job) => {
 };
 
 const buildLayoutCheckPayload = (job) => {
-  if (job.status !== "ready" || !job.layoutCheck) return undefined;
+  if (job.cancelRequestedAt || job.expiresAt <= new Date() || job.status !== "ready" || !job.layoutCheck) return undefined;
 
   const layoutCheck = {};
 
@@ -154,9 +155,9 @@ const buildLayoutCheckPayload = (job) => {
 const buildGenerationJobPayload = (job) => {
   const payload = {
     jobId: String(job._id),
-    status: job.status,
+    status: job.cancelRequestedAt ? "failed" : job.status,
     mode: job.mode,
-    error: job.error,
+    error: job.cancelRequestedAt ? "Генерацію скасовано після виходу зі сторінки." : job.error,
     expiresAt: job.expiresAt,
   };
 

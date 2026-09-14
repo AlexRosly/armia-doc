@@ -7,6 +7,7 @@ const createOrder = async (req, res, next) => {
       model: OrderDocument,
       payload: req.body,
       clientId: req.clientId,
+      lifecycleToken: req.get("X-Generation-Token") || null,
     });
 
     return res.status(existing ? 200 : 201).json({

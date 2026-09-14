@@ -1,3 +1,4 @@
+const generationStorageRoot = require("../generation/storageRoot");
 const fs = require("fs/promises");
 const path = require("path");
 
@@ -17,15 +18,14 @@ const buildPayload = (report) => ({
 });
 
 const buildFinalDocxPath = (job) =>
-  path.join(process.cwd(), "storage", "docx", `${job._id}_report.docx`);
+  path.join(generationStorageRoot(), "docx", `${job._id}_report.docx`);
 const buildCandidateDocxPath = (job, index) =>
   path.join(
-    process.cwd(),
-    "storage",
+    generationStorageRoot(),
     "docx",
     `${job._id}_report_candidate_${String(index + 1).padStart(4, "0")}.docx`,
   );
-const buildPdfDir = () => path.join(process.cwd(), "storage", "pdf");
+const buildPdfDir = () => path.join(generationStorageRoot(), "pdf");
 const buildPdfPath = (docxPath, pdfDir) =>
   path.join(pdfDir, `${path.parse(docxPath).name}.pdf`);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
