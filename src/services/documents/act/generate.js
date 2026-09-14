@@ -1,5 +1,6 @@
 const fs = require("fs/promises");
 const PizZip = require("pizzip");
+const releaseLastCopyKeepNext = require("./releaseLastCopyKeepNext");
 
 const buildTemplateData = require("./buildTemplateDataAct");
 const { generateSingleTemplate } = require("../shared");
@@ -48,19 +49,22 @@ const relaxEventHeadingPagination = (documentXml) => {
   )}`;
 };
 
-const preserveActLiteralSpaceRuns = (buffer) => {
+const preserveActLiteralSpaceRuns = (buffer, copiesCount) => {
   const zip = new PizZip(buffer);
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) return buffer;
 
   const documentXml = documentFile.asText();
-  const normalizedXml = relaxEventHeadingPagination(
-    documentXml
-      .replace(
-        /<w:t(?![^>]*\bxml:space=)([^>]*)> <\/w:t>/g,
-        '<w:t$1 xml:space="preserve"> </w:t>',
-      )
-      .replace(/<w:lastRenderedPageBreak\b[^>]*\/>/g, ""),
+  const normalizedXml = releaseLastCopyKeepNext(
+    relaxEventHeadingPagination(
+      documentXml
+        .replace(
+          /<w:t(?![^>]*\bxml:space=)([^>]*)> <\/w:t>/g,
+          '<w:t$1 xml:space="preserve"> </w:t>',
+        )
+        .replace(/<w:lastRenderedPageBreak\b[^>]*\/>/g, ""),
+    ),
+    copiesCount,
   );
 
   if (normalizedXml === documentXml) return buffer;
@@ -87,7 +91,10 @@ const generateActDocument = async (payload, outputPath, profile) => {
     outputPath: null,
   });
 
-  const finalBuffer = preserveActLiteralSpaceRuns(renderedBuffer);
+  const finalBuffer = preserveActLiteralSpaceRuns(
+    renderedBuffer,
+    data.copies.length,
+  );
   await fs.writeFile(outputPath, finalBuffer);
 
   return outputPath;
